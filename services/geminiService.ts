@@ -6,7 +6,11 @@ let GLOBAL_QUESTIONS_CACHE: any[] = [];
 
 export const preloadAllQuestions = async (): Promise<boolean> => {
   try {
-    const response = await fetch('https://api.sheety.co/e1d05c2504d597feb758d2d88e581b32/dagshny/sheet1');
+    // Add timestamp to bypass browser/network caching
+    const timestamp = Date.now();
+    const response = await fetch(`https://api.sheety.co/e1d05c2504d597feb758d2d88e581b32/dagshny/sheet1?t=${timestamp}`, {
+      cache: 'no-store'
+    });
     const json = await response.json();
     GLOBAL_QUESTIONS_CACHE = json.sheet1 || [];
     console.log("Questions loaded:", GLOBAL_QUESTIONS_CACHE.length);
