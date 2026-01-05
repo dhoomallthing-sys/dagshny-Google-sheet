@@ -1,27 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { GameState, Question, Category, Points, PowerUpState } from './types';
-import { generateQuestionsForCategory, getCategoryGameCount, preloadCarsData } from './services/geminiService';
+import { generateQuestionsForCategory, getCategoryGameCount, preloadAllQuestions } from './services/geminiService';
 import { getGameHistory, saveGameToHistory, markQuestionsAsUsed, resetAllProgress, GameHistoryItem } from './services/storageService';
 import QuestionModal from './components/QuestionModal';
 import CastButton from './components/CastButton';
 import PowerUps from './components/PowerUps';
 
+// Exactly matching the 15 categories requested
 const CATEGORY_META = [
+  { name: "أنمي", img: "https://cdn.aptoide.com/imgs/3/c/9/3c93ccd912c43b3b76175b18f74bd52b_fgraphic.png" },
+  { name: "اسلاميات", img: "https://islameyat.vercel.app/Images/Books/book.jpg" },
+  { name: "فيديو قيمز", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1767292404/%D8%AE%D9%84%D9%81%D9%8A%D8%A9_%D8%A7%D9%84%D8%B9%D8%A7%D8%A8_lb0qsn.jpg" },
+  { name: "معلومات عامة", img: "https://cdn.pixabay.com/photo/2023/11/01/19/04/ai-generated-8358821_640.jpg" },
+  { name: "علوم", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1767292405/%D8%AE%D9%84%D9%81%D9%8A%D8%A9_%D8%B9%D9%84%D9%88%D9%85_oqowb2.jpg" },
+  { name: "قصص الأنبياء", img: "https://play-lh.googleusercontent.com/fjRu2XKWoMJsUU9ukXnWUvNeo2VfZoFh7nYQrEnc69vYairg9hwm_iYeLHfkBCDrvRw" },
+  { name: "حنكة", img: "https://cdn.pixabay.com/photo/2017/02/01/10/24/brain-2029391_1280.png" },
   { name: "أعلام", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1767292404/%D8%AE%D9%84%D9%81%D9%8A%D8%A9_%D8%A3%D8%B9%D9%84%D8%A7%D9%85_nrhye6.jpg" },
   { name: "للبنات", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1767356081/photo_2026-01-02_15-12-19_iui6kl.jpg" },
   { name: "حروف", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1767471986/photo_2026-01-03_23-12-56_bebkhb.jpg" },
   { name: "يوتيوب سعودي", img: "https://upload.wikimedia.org/wikipedia/commons/e/ef/Youtube_logo.png" },
   { name: "تموينات", img: "https://cdn.pixabay.com/photo/2016/11/22/21/57/apparel-1850804_1280.jpg" },
-  { name: "حنكة", img: "https://cdn.pixabay.com/photo/2017/02/01/10/24/brain-2029391_1280.png" },
-  { name: "سيارات", img: "https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=400" },
-  { name: "أنمي", img: "https://cdn.aptoide.com/imgs/3/c/9/3c93ccd912c43b3b76175b18f74bd52b_fgraphic.png" },
   { name: "كرة قدم سعودية", img: "https://cdn.arabsstock.com/uploads/images/315277/playing-in-the-saudi-professional-thumbnail-315277.webp" },
   { name: "تاريخ", img: "https://iraqination.net/wp-content/uploads/2023/10/%D9%81%D9%88%D8%A7%D8%A6%D8%AF-%D8%AF%D8%B1%D8%A7%D8%B3%D8%A9-%D8%A7%D9%84%D8%AA%D8%A7%D8%B1%D9%8A%D8%AE.jpg" },
-  { name: "قصص الأنبياء", img: "https://play-lh.googleusercontent.com/fjRu2XKWoMJsUU9ukXnWUvNeo2VfZoFh7nYQrEnc69vYairg9hwm_iYeLHfkBCDrvRw" },
-  { name: "علوم", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1767292405/%D8%AE%D9%84%D9%81%D9%8A%D8%A9_%D8%B9%D9%84%D9%88%D9%85_oqowb2.jpg" },
-  { name: "معلومات عامة", img: "https://cdn.pixabay.com/photo/2023/11/01/19/04/ai-generated-8358821_640.jpg" },
-  { name: "اسلاميات", img: "https://islameyat.vercel.app/Images/Books/book.jpg" },
-  { name: "فيديو قيمز", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1767292404/%D8%AE%D9%84%D9%81%D9%8A%D8%A9_%D8%A7%D9%84%D8%B9%D8%A7%D8%A8_lb0qsn.jpg" }
+  { name: "سيارات", img: "https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=400" }
 ];
 
 // Simple CSS-based Fireworks Component
@@ -151,8 +152,8 @@ const App: React.FC = () => {
   const [refreshKey, setRefreshKey] = useState(0); 
 
   useEffect(() => {
-    // Preload data for specific categories (like Cars) to ensure game counts are accurate
-    preloadCarsData().then((hasData) => {
+    // Preload data for ALL categories to ensure game counts are accurate
+    preloadAllQuestions().then((hasData) => {
       if (hasData) {
         // Force refresh to update the "Games Remaining" count in the UI
         setRefreshKey(k => k + 1);
