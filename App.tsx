@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { GameState, Question, Category, Points, PowerUpState } from './types';
-import { generateQuestionsForCategory, getCategoryGameCount } from './services/geminiService';
+import { generateQuestionsForCategory, getCategoryGameCount, preloadCarsData } from './services/geminiService';
 import { getGameHistory, saveGameToHistory, markQuestionsAsUsed, resetAllProgress, GameHistoryItem } from './services/storageService';
 import QuestionModal from './components/QuestionModal';
 import CastButton from './components/CastButton';
@@ -149,6 +149,16 @@ const App: React.FC = () => {
   const [loadingMsg, setLoadingMsg] = useState("");
   // Used to force re-render of Setup screen to update counts
   const [refreshKey, setRefreshKey] = useState(0); 
+
+  useEffect(() => {
+    // Preload data for specific categories (like Cars) to ensure game counts are accurate
+    preloadCarsData().then((hasData) => {
+      if (hasData) {
+        // Force refresh to update the "Games Remaining" count in the UI
+        setRefreshKey(k => k + 1);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (showHistory) {

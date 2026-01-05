@@ -785,44 +785,45 @@ export const getCategoryGameCount = (categoryName: string): number => {
   return Math.floor(minCount / 2);
 };
 
+export const preloadCarsData = async (): Promise<boolean> => {
+  try {
+    const response = await fetch('https://api.sheety.co/e1d05c2504d597feb758d2d88e581b32/dagshny/sheet1');
+    const json = await response.json();
+    const sheetData = json.sheet1 || [];
+    
+    const mappedQuestions = sheetData
+      .filter((item: any) => item.category === 'السيارات')
+      .map((item: any) => {
+        let points: Points = 200;
+        const diff = String(item.difficulty).toLowerCase();
+        if (diff.includes('400') || diff.includes('متوسط') || diff.includes('medium')) points = 400;
+        if (diff.includes('600') || diff.includes('صعب') || diff.includes('hard')) points = 600;
+
+        return {
+          q: item.question,
+          a: item.answer,
+          p: points,
+          qImg: item.theImageOnQuestionScreen,
+          aImg: item.theImageOnAnswerScreen
+        };
+      });
+      
+    if (mappedQuestions.length > 0) {
+      STATIC_DB['سيارات'] = mappedQuestions;
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error("Error fetching cars questions:", error);
+    return false;
+  }
+};
+
 export const generateQuestionsForCategory = async (categoryName: string): Promise<Question[]> => {
   // Simulate network delay for effect
   await new Promise(resolve => setTimeout(resolve, 800));
 
   let allQuestions = STATIC_DB[categoryName] || [];
-
-  // Special handling for Cars category using Sheety API
-  if (categoryName === 'سيارات') {
-    try {
-      const response = await fetch('https://api.sheety.co/e1d05c2504d597feb758d2d88e581b32/dagshny/sheet1');
-      const json = await response.json();
-      const sheetData = json.sheet1 || [];
-      
-      const mappedQuestions = sheetData
-        .filter((item: any) => item.category === 'السيارات')
-        .map((item: any) => {
-          let points: Points = 200;
-          const diff = String(item.difficulty).toLowerCase();
-          if (diff.includes('400') || diff.includes('متوسط') || diff.includes('medium')) points = 400;
-          if (diff.includes('600') || diff.includes('صعب') || diff.includes('hard')) points = 600;
-
-          return {
-            q: item.question,
-            a: item.answer,
-            p: points,
-            qImg: item.theImageOnQuestionScreen,
-            aImg: item.theImageOnAnswerScreen
-          };
-        });
-        
-      if (mappedQuestions.length > 0) {
-        allQuestions = mappedQuestions;
-      }
-    } catch (error) {
-      console.error("Error fetching cars questions:", error);
-      // Fallback to static DB is automatic since allQuestions was initialized with it
-    }
-  }
   
   // If category not found, return empty array
   if (allQuestions.length === 0) return [];
