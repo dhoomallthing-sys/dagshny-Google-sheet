@@ -1,7 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { GameState, Question, Category, Points, PowerUpState } from './types';
-import { generateQuestionsForCategory, getCategoryGameCount, preloadAllQuestions } from './services/geminiService';
-import { getGameHistory, saveGameToHistory, markQuestionsAsUsed, resetAllProgress, GameHistoryItem } from './services/storageService';
+import { GameState, Question, Category, Points, PowerUpState, Subscription } from './types';
+import { 
+  generateQuestionsForCategory, 
+  getCategoryGameCount, 
+  preloadAllQuestions, 
+  setGameTier, 
+  verifyActivationCode, 
+  consumeActivationCode
+} from './services/geminiService';
+import { 
+  getGameHistory, 
+  saveGameToHistory, 
+  markQuestionsAsUsed, 
+  resetAllProgress, 
+  GameHistoryItem,
+  getSubscription,
+  saveSubscription,
+  removeSubscription
+} from './services/storageService';
 import QuestionModal from './components/QuestionModal';
 import CastButton from './components/CastButton';
 import PowerUps from './components/PowerUps';
@@ -126,6 +142,26 @@ const NotificationToast = ({ message }: { message: string | null }) => {
   );
 };
 
+// Main Status Badge Component
+const StatusBadge = ({ tier }: { tier: 'free' | 'plus' | 'pro' }) => {
+  let bgColor = "bg-slate-500";
+  let text = "النسخة المجانية 🆓";
+  
+  if (tier === 'plus') {
+    bgColor = "bg-blue-600";
+    text = "باقة البلس 💎";
+  } else if (tier === 'pro') {
+    bgColor = "bg-yellow-500";
+    text = "باقة البرو 👑";
+  }
+
+  return (
+    <div className={`absolute top-0 left-1/2 -translate-x-1/2 rounded-b-xl px-6 py-2 shadow-lg z-30 ${bgColor} text-white font-black text-sm md:text-base border-x border-b border-white/20`}>
+      {text}
+    </div>
+  );
+};
+
 const App: React.FC = () => {
   const [isMobileMode, setIsMobileMode] = useState(false);
   const [showRules, setShowRules] = useState(false);
@@ -143,18 +179,43 @@ const App: React.FC = () => {
       { doublePoints: 1, noPenalty: 1, twoAnswers: 1 },
       { doublePoints: 1, noPenalty: 1, twoAnswers: 1 }
     ],
-    gameStatus: 'landing'
+    gameStatus: 'tierSelection' // Start with Tier Selection
   });
 
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [loadingMsg, setLoadingMsg] = useState("");
   // Used to force re-render of Setup screen to update counts
   const [refreshKey, setRefreshKey] = useState(0); 
+  const [questionsLoaded, setQuestionsLoaded] = useState(false);
+  
+  // Activation & Tier States
+  const [storedSubscription, setStoredSubscription] = useState<Subscription | null>(null);
+  const [activeTierMode, setActiveTierMode] = useState<'free' | 'plus' | 'pro'>('free');
+  
+  const [pendingTier, setPendingTier] = useState<'plus' | 'pro' | null>(null);
+  const [activationCode, setActivationCode] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [activationError, setActivationError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Preload data for ALL categories to ensure game counts are accurate
+    // 1. Check for persistent subscription (Auto-Login)
+    const sub = getSubscription();
+    setStoredSubscription(sub);
+
+    if (sub) {
+      setGameTier(sub.tier);
+      setActiveTierMode(sub.tier);
+      // Skip tier selection and activation, go straight to Landing
+      setGameState(prev => ({ ...prev, gameStatus: 'landing' }));
+    } else {
+       setGameTier('free');
+       setActiveTierMode('free');
+    }
+
+    // 2. Preload data for ALL categories to ensure game counts are accurate
     preloadAllQuestions().then((hasData) => {
       if (hasData) {
+        setQuestionsLoaded(true);
         // Force refresh to update the "Games Remaining" count in the UI
         setRefreshKey(k => k + 1);
       }
@@ -193,6 +254,64 @@ const App: React.FC = () => {
   const showNotification = (msg: string) => {
     setNotification(msg);
     setTimeout(() => setNotification(null), 3000);
+  };
+
+  const handleTierSelection = (tier: 'free' | 'plus' | 'pro') => {
+    // Check if the user already has this tier activated
+    const isUnlocked = tier === 'free' || (storedSubscription && storedSubscription.tier === tier);
+
+    if (isUnlocked) {
+      // Direct Access Logic
+      setGameTier(tier);
+      setActiveTierMode(tier);
+      setRefreshKey(prev => prev + 1);
+      setGameState(prev => ({ ...prev, gameStatus: 'landing' }));
+    } else {
+      // Upgrade/Activation Logic
+      setPendingTier(tier);
+      setActivationCode('');
+      setActivationError(null);
+      setGameState(prev => ({ ...prev, gameStatus: 'activation' }));
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    if (!activationCode || !pendingTier) return;
+    
+    setIsVerifying(true);
+    setActivationError(null);
+
+    // 1. Verify Code with Sheety
+    const result = await verifyActivationCode(activationCode, pendingTier);
+
+    if (result.isValid && result.rowId) {
+      // 2. Consume Code (Set isUsed = Yes)
+      const consumed = await consumeActivationCode(result.rowId);
+      
+      if (consumed) {
+        // 3. Save Subscription Locally (Overwrite old one)
+        const newSub: Subscription = {
+          tier: pendingTier,
+          activationCode: activationCode,
+          date: new Date().toISOString()
+        };
+        saveSubscription(newSub);
+        setStoredSubscription(newSub);
+
+        // 4. Update Game State
+        setGameTier(pendingTier);
+        setActiveTierMode(pendingTier);
+        setRefreshKey(prev => prev + 1);
+        setGameState(prev => ({ ...prev, gameStatus: 'landing' }));
+        showNotification(`تم تفعيل ${pendingTier === 'plus' ? 'باقة البلس' : 'باقة البرو'} بنجاح! 🎉`);
+      } else {
+        setActivationError('فشل تفعيل الكود، يرجى المحاولة مرة أخرى.');
+      }
+    } else {
+      setActivationError(result.error || 'الكود غير صحيح.');
+    }
+    
+    setIsVerifying(false);
   };
 
   const handleStartGame = async () => {
@@ -364,13 +483,187 @@ const App: React.FC = () => {
     });
   };
 
+  if (gameState.gameStatus === 'tierSelection') {
+    return (
+      <div className="h-[100dvh] w-full flex flex-col items-center justify-center p-6 bg-slate-50 relative overflow-hidden">
+        
+        {/* Decorative Blobs */}
+        <div className="absolute top-0 right-0 w-80 h-80 bg-orange-100 rounded-full -mr-32 -mt-32 blur-3xl opacity-50 pointer-events-none"></div>
+        <div className="absolute bottom-0 left-0 w-80 h-80 bg-blue-100 rounded-full -ml-32 -mb-32 blur-3xl opacity-50 pointer-events-none"></div>
+
+        <div className="relative z-10 text-center max-w-4xl w-full">
+          <h1 className="text-4xl md:text-6xl font-black text-slate-800 mb-2 md:mb-4 animate-in slide-in-from-top-10 fade-in duration-500">
+             اختر باقتك 📦
+          </h1>
+          <p className="text-slate-500 text-lg md:text-xl mb-8 md:mb-12 animate-in slide-in-from-top-12 fade-in duration-700">
+             اختر الباقة المناسبة للعبتك اليوم
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 items-stretch">
+            
+            {/* Free Tier */}
+            <button 
+              onClick={() => handleTierSelection('free')}
+              disabled={!questionsLoaded}
+              className="bg-slate-50 border-4 border-slate-300 rounded-[2rem] p-6 hover:scale-105 hover:shadow-xl hover:border-slate-400 transition-all duration-300 group flex flex-col items-center animate-in zoom-in duration-300 fill-mode-backwards delay-100 relative overflow-hidden"
+            >
+              <div className="w-20 h-20 bg-slate-200 rounded-full flex items-center justify-center text-4xl mb-4 group-hover:bg-slate-300 transition-colors">
+                🆓
+              </div>
+              <h3 className="text-2xl font-black text-slate-700 mb-2">النسخة المجانية</h3>
+              <p className="text-slate-400 text-sm font-bold">أسئلة المستوى الأول</p>
+              
+              {!questionsLoaded && (
+                <div className="absolute inset-0 bg-white/80 flex items-center justify-center backdrop-blur-sm">
+                   <div className="w-6 h-6 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              )}
+            </button>
+
+            {/* Plus Tier */}
+            <button 
+              onClick={() => handleTierSelection('plus')}
+              disabled={!questionsLoaded}
+              className="bg-blue-50 border-4 border-blue-400 rounded-[2rem] p-6 hover:scale-105 hover:shadow-xl hover:shadow-blue-200 hover:border-blue-500 transition-all duration-300 group flex flex-col items-center animate-in zoom-in duration-300 fill-mode-backwards delay-200 relative overflow-hidden"
+            >
+              <div className="absolute -right-12 -top-12 w-24 h-24 bg-blue-400/20 rounded-full blur-xl group-hover:bg-blue-400/40 transition-all"></div>
+              <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center text-4xl mb-4 group-hover:bg-blue-200 transition-colors text-blue-600 shadow-inner">
+                💎
+              </div>
+              <h3 className="text-2xl font-black text-blue-700 mb-2">باقة البلس</h3>
+              <p className="text-blue-400 text-sm font-bold mb-4">أسئلة المستوى الثاني فقط</p>
+
+              {/* Activated Badge */}
+              {storedSubscription?.tier === 'plus' && (
+                <div className="bg-green-500 text-white px-4 py-1 rounded-full text-sm font-bold animate-pulse shadow-md">
+                   ✅ مفعلة
+                </div>
+              )}
+              
+              {!questionsLoaded && (
+                <div className="absolute inset-0 bg-white/80 flex items-center justify-center backdrop-blur-sm">
+                   <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              )}
+            </button>
+
+            {/* Pro Tier */}
+            <button 
+              onClick={() => handleTierSelection('pro')}
+              disabled={!questionsLoaded}
+              className="bg-yellow-50 border-4 border-yellow-400 rounded-[2rem] p-6 hover:scale-110 hover:shadow-2xl hover:shadow-yellow-500/30 hover:border-yellow-500 transition-all duration-300 group flex flex-col items-center z-10 animate-in zoom-in duration-300 fill-mode-backwards delay-300 relative overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-yellow-100/0 via-yellow-100/0 to-yellow-400/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+              <div className="w-24 h-24 bg-yellow-100 rounded-full flex items-center justify-center text-5xl mb-4 group-hover:bg-yellow-200 transition-colors text-yellow-600 shadow-lg border-2 border-yellow-200">
+                👑
+              </div>
+              <h3 className="text-3xl font-black text-yellow-700 mb-2">باقة البرو</h3>
+              <p className="text-yellow-600/70 text-sm font-bold mb-4">شامل المستوى الثاني والثالث</p>
+
+              {/* Activated Badge */}
+              {storedSubscription?.tier === 'pro' && (
+                <div className="bg-green-600 text-white px-6 py-1.5 rounded-full text-lg font-bold animate-pulse shadow-lg z-20">
+                   ✅ مفعلة
+                </div>
+              )}
+              
+              {!questionsLoaded && (
+                <div className="absolute inset-0 bg-white/80 flex items-center justify-center backdrop-blur-sm">
+                   <div className="w-6 h-6 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              )}
+            </button>
+
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- ACTIVATION SCREEN ---
+  if (gameState.gameStatus === 'activation') {
+    const isPro = pendingTier === 'pro';
+    const accentColor = isPro ? 'yellow' : 'blue';
+    const borderColor = isPro ? 'border-yellow-500' : 'border-blue-500';
+    const textColor = isPro ? 'text-yellow-600' : 'text-blue-600';
+    const bgGradient = isPro ? 'from-yellow-50 to-orange-50' : 'from-blue-50 to-indigo-50';
+
+    return (
+      <div className={`h-[100dvh] w-full flex flex-col items-center justify-center p-6 bg-gradient-to-br ${bgGradient} relative overflow-hidden`}>
+        
+        {/* Back Button */}
+        <button 
+          onClick={() => setGameState(prev => ({ ...prev, gameStatus: 'tierSelection' }))}
+          className="absolute top-4 right-4 z-50 text-slate-500 hover:text-slate-800 bg-white px-4 py-2 rounded-full shadow-md font-bold transition-all"
+        >
+          عودة ↩
+        </button>
+
+        <div className={`bg-white p-8 md:p-12 rounded-[2.5rem] shadow-2xl border-4 ${borderColor} w-full max-w-2xl animate-in zoom-in duration-300`}>
+          <div className="text-center mb-8">
+            <div className={`w-24 h-24 mx-auto ${isPro ? 'bg-yellow-100 text-yellow-600' : 'bg-blue-100 text-blue-600'} rounded-full flex items-center justify-center text-5xl mb-4 shadow-inner`}>
+              {isPro ? '👑' : '💎'}
+            </div>
+            <h2 className={`text-3xl md:text-5xl font-black ${textColor} mb-2`}>
+              تفعيل {isPro ? 'باقة البرو' : 'باقة البلس'}
+            </h2>
+            <p className="text-slate-400 text-lg">أدخل كود التفعيل الخاص بك للبدء</p>
+          </div>
+
+          <div className="space-y-6">
+            <div className="relative">
+              <input
+                type="text"
+                value={activationCode}
+                onChange={(e) => setActivationCode(e.target.value)}
+                placeholder="XXXX-XXXX-XXXX"
+                className={`w-full bg-slate-50 border-4 border-slate-200 rounded-[1.5rem] px-6 py-4 text-center text-2xl md:text-3xl font-black tracking-widest focus:outline-none focus:border-${isPro ? 'yellow' : 'blue'}-400 transition-all uppercase placeholder:text-slate-300`}
+                disabled={isVerifying}
+              />
+            </div>
+
+            {activationError && (
+              <div className="text-red-500 font-bold text-center bg-red-50 py-3 rounded-xl border border-red-200 animate-in shake">
+                ⚠️ {activationError}
+              </div>
+            )}
+
+            <button
+              onClick={handleVerifyCode}
+              disabled={isVerifying || !activationCode}
+              className={`w-full py-5 rounded-[1.5rem] text-white text-2xl font-black shadow-xl transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${
+                isPro 
+                  ? 'bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 shadow-yellow-500/30' 
+                  : 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-400 shadow-blue-500/30'
+              }`}
+            >
+              {isVerifying ? 'جاري التحقق...' : 'تفعيل الكود 🔓'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (gameState.gameStatus === 'landing') {
     return (
       <div className="h-[100dvh] w-full flex flex-col items-center justify-center p-4 bg-white relative overflow-hidden">
+        
+        {/* Status Badge on Landing Page */}
+        <StatusBadge tier={activeTierMode} />
+
         {/* Top Bar with Cast Button */}
         <div className="absolute top-4 left-4 z-50">
            <CastButton />
         </div>
+        
+        {/* Change Tier Button (Top Right) */}
+        <button 
+           onClick={() => setGameState(prev => ({ ...prev, gameStatus: 'tierSelection' }))}
+           className="absolute top-4 right-4 z-50 text-slate-400 hover:text-orange-500 font-bold text-xs md:text-sm bg-white/80 backdrop-blur px-3 py-1.5 rounded-full border border-slate-200 hover:border-orange-200 transition-all shadow-sm"
+        >
+          📦 {storedSubscription ? 'تغيير الباقة / ترقية' : 'تغيير الباقة'}
+        </button>
 
         {/* Background blobs */}
         <div className="absolute top-0 right-0 w-64 h-64 md:w-96 md:h-96 bg-orange-100 rounded-full -mr-32 -mt-32 opacity-50 blur-3xl animate-pulse pointer-events-none"></div>
@@ -381,7 +674,8 @@ const App: React.FC = () => {
           <div className="mb-4 md:mb-8 inline-block p-4 md:p-6 rounded-[2rem] md:rounded-[3rem] bg-orange-50 border-4 border-orange-100 shadow-xl shrink-0">
              <span className="text-6xl md:text-9xl">🤔</span>
           </div>
-          <h1 className="text-6xl md:text-8xl lg:text-[10rem] font-black text-orange-600 leading-none tracking-tighter mb-4 md:mb-6 drop-shadow-2xl">
+          {/* Scaled down title by 10% (scale-90) */}
+          <h1 className="text-6xl md:text-8xl lg:text-[10rem] font-black text-orange-600 leading-none tracking-tighter mb-4 md:mb-6 drop-shadow-2xl transform scale-90">
             داقشني
           </h1>
           
@@ -529,7 +823,7 @@ const App: React.FC = () => {
                <h2 className="text-2xl md:text-3xl font-black text-orange-600 mb-4 md:mb-6 text-center border-b-2 border-orange-100 pb-4">قواعد التحدي 🎮</h2>
                <div className="space-y-4 md:space-y-6 text-slate-700 leading-relaxed text-base md:text-lg">
                   <p><strong className="text-orange-600 block mb-1">المواجهة:</strong> تحدي مباشر بين فريقين.</p>
-                  <p><strong className="text-orange-600 block mb-1">الميدان:</strong> اختيار 6 فئات عشوائية من أصل 12 فئة متنوعة.</p>
+                  <p><strong className="text-orange-600 block mb-1">الميدان:</strong> اختيار 6 فئات عشوائية من أصل 15 فئة متنوعة.</p>
                   <p><strong className="text-orange-600 block mb-1">الأسئلة:</strong> جولة كبرى من 36 سؤالاً (6 أسئلة لكل فئة) تتدرج من السهل إلى الصعب.</p>
                   
                   <div className="bg-orange-50 p-4 rounded-xl border border-orange-100">
@@ -559,18 +853,23 @@ const App: React.FC = () => {
   if (gameState.gameStatus === 'setup') {
     return (
       <div className="h-[100dvh] w-full p-2 md:p-6 flex flex-col items-center overflow-hidden relative">
-        {/* Back to Home Button */}
+        
+        {/* Main Screen Status Badge */}
+        <StatusBadge tier={activeTierMode} />
+
+        {/* Home Button replacing Change Package */}
         <button 
           onClick={() => setGameState(prev => ({ ...prev, gameStatus: 'landing' }))}
-          className="absolute top-4 right-4 z-50 bg-white/80 backdrop-blur text-slate-500 hover:text-orange-600 p-2 md:p-3 rounded-full shadow-md border border-slate-200 hover:border-orange-200 transition-all active:scale-95 group"
+          className="absolute top-4 right-4 z-50 bg-white/80 backdrop-blur text-slate-500 hover:text-orange-600 px-3 py-2 rounded-full shadow-md border border-slate-200 hover:border-orange-200 transition-all active:scale-95 group text-xs md:text-sm font-bold flex items-center gap-2"
           title="عودة للرئيسية"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 md:w-8 md:h-8 group-hover:scale-110 transition-transform">
-            <path d="M11.47 3.841a.75.75 0 0 1 1.06 0l8.632 8.632a.75.75 0 0 1-1.06 1.061l-.312-.312V19.5a3 3 0 0 1-3 3H7.5a3 3 0 0 1-3-3V13.222l-.313.312a.75.75 0 0 1-1.06-1.06L11.47 3.84ZM19.5 11.898V19.5a1.5 1.5 0 0 1-1.5 1.5H15V15.75a.75.75 0 0 0-.75-.75h-4.5a.75.75 0 0 0-.75.75V21H7.5a1.5 1.5 0 0 1-1.5-1.5v-7.602l6-6 6 6Z" />
+          <span className="hidden md:inline">الرئيسية</span>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 group-hover:scale-110 transition-transform">
+             <path d="M11.47 3.841a.75.75 0 0 1 1.06 0l8.632 8.632a.75.75 0 0 1-1.06 1.061l-.312-.312V19.5a3 3 0 0 1-3 3H7.5a3 3 0 0 1-3-3V13.222l-.313.312a.75.75 0 0 1-1.06-1.06L11.47 3.84ZM19.5 11.898V19.5a1.5 1.5 0 0 1-1.5 1.5H15V15.75a.75.75 0 0 0-.75-.75h-4.5a.75.75 0 0 0-.75.75V21H7.5a1.5 1.5 0 0 1-1.5-1.5v-7.602l6-6 6 6Z" />
           </svg>
         </button>
 
-        <header className="mb-2 md:mb-4 text-center animate-in slide-in-from-top-12 duration-500 shrink-0">
+        <header className="mb-2 md:mb-4 text-center animate-in slide-in-from-top-12 duration-500 shrink-0 mt-8">
           <h1 className="text-4xl md:text-6xl font-black text-orange-600 mb-1 md:mb-2 drop-shadow-xl tracking-tighter">داقشني</h1>
           <p className="text-sm md:text-xl text-slate-400 font-bold bg-white px-4 py-1 md:px-8 md:py-2 rounded-full shadow-sm inline-block">
              اختر 6 فئات ({selectedCategories.length}/6)

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Question, PowerUpState } from '../types';
 
@@ -82,30 +81,30 @@ const QuestionModal: React.FC<QuestionModalProps> = ({
           {question.points} نقطة
         </div>
         
-        {/* Power Ups Display in Modal */}
-        <div className="flex gap-2">
-          {/* Double Points - Show active or disabled */}
-          <div className={`px-3 py-1.5 rounded-full font-bold shadow-lg flex items-center gap-2 transition-all border-2 text-sm md:text-base ${
-            activePowerUps.includes('doublePoints') 
-              ? 'bg-yellow-500 border-yellow-400 text-black animate-pulse scale-105' 
-              : 'bg-slate-800 border-slate-700 text-slate-500 opacity-40 grayscale cursor-not-allowed'
-          }`}>
-             <span>🤑</span> 
-             <span className="hidden md:inline">دبل نقاط</span>
-          </div>
+        {/* Power Ups Display in Modal - HIDDEN ON ANSWER SCREEN */}
+        {!isAnswerRevealed && (
+          <div className="flex gap-2">
+            {/* Double Points - Show active or disabled */}
+            <div className={`px-3 py-1.5 rounded-full font-bold shadow-lg flex items-center gap-2 transition-all border-2 text-sm md:text-base ${
+              activePowerUps.includes('doublePoints') 
+                ? 'bg-yellow-500 border-yellow-400 text-black animate-pulse scale-105' 
+                : 'bg-slate-800 border-slate-700 text-slate-500 opacity-40 grayscale cursor-not-allowed'
+            }`}>
+               <span>🤑</span> 
+               <span className="hidden md:inline">دبل نقاط</span>
+            </div>
 
-          {/* No Penalty - Show active or disabled */}
-          <div className={`px-3 py-1.5 rounded-full font-bold shadow-lg flex items-center gap-2 transition-all border-2 text-sm md:text-base ${
-            activePowerUps.includes('noPenalty')
-              ? 'bg-blue-500 border-blue-400 text-white animate-pulse scale-105' 
-              : 'bg-slate-800 border-slate-700 text-slate-500 opacity-40 grayscale cursor-not-allowed'
-          }`}>
-             <span>✋</span> 
-             <span className="hidden md:inline">منع الخصم</span>
-          </div>
+            {/* No Penalty - Show active or disabled */}
+            <div className={`px-3 py-1.5 rounded-full font-bold shadow-lg flex items-center gap-2 transition-all border-2 text-sm md:text-base ${
+              activePowerUps.includes('noPenalty')
+                ? 'bg-blue-500 border-blue-400 text-white animate-pulse scale-105' 
+                : 'bg-slate-800 border-slate-700 text-slate-500 opacity-40 grayscale cursor-not-allowed'
+            }`}>
+               <span>✋</span> 
+               <span className="hidden md:inline">منع الخصم</span>
+            </div>
 
-          {/* Two Answers Button - Interactive */}
-          {!isAnswerRevealed && (
+            {/* Two Answers Button - Interactive */}
             <button
               onClick={onToggleTwoAnswers}
               disabled={currentTeamPowerUps.twoAnswers === 0}
@@ -123,8 +122,8 @@ const QuestionModal: React.FC<QuestionModalProps> = ({
                 </span>
               )}
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="bg-slate-800 border border-slate-600 px-4 py-1.5 rounded-full font-bold text-slate-300 text-sm md:text-base">
           {question.category}

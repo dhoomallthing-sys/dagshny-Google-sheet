@@ -12,6 +12,7 @@ export interface Question {
   answerImg?: string;   // Image to show during the answer phase
   isUsed: boolean;
   hint?: string; // Special hint text (e.g. range)
+  tier?: number; // 1, 2, or 3
 }
 
 export interface Category {
@@ -26,6 +27,12 @@ export interface Team {
   score: number;
 }
 
+export interface Subscription {
+  tier: 'plus' | 'pro';
+  activationCode: string;
+  date: string;
+}
+
 export interface GameState {
   teams: [Team, Team];
   currentTurn: number; // 0 or 1
@@ -33,7 +40,7 @@ export interface GameState {
   activeQuestion: Question | null;
   activePowerUps: (keyof PowerUpState)[]; // Supports multiple active powerups
   powerUps: [PowerUpState, PowerUpState];
-  gameStatus: 'landing' | 'setup' | 'teams' | 'loading' | 'playing' | 'finished';
+  gameStatus: 'tierSelection' | 'activation' | 'landing' | 'setup' | 'teams' | 'loading' | 'playing' | 'finished';
 }
 
 export interface PowerUpState {

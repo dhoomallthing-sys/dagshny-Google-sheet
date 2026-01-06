@@ -1,5 +1,5 @@
 
-import { Category, Team } from "../types";
+import { Category, Team, Subscription } from "../types";
 
 export interface GameHistoryItem {
   id: string;
@@ -11,6 +11,7 @@ export interface GameHistoryItem {
 
 const HISTORY_KEY = 'sinjim_game_history';
 const USED_QUESTIONS_KEY = 'sinjim_used_questions';
+const SUBSCRIPTION_KEY = 'sinjim_subscription';
 
 export const getGameHistory = (): GameHistoryItem[] => {
   try {
@@ -57,7 +58,30 @@ export const markQuestionsAsUsed = (questionIds: string[]) => {
   }
 };
 
+export const saveSubscription = (sub: Subscription) => {
+  try {
+    localStorage.setItem(SUBSCRIPTION_KEY, JSON.stringify(sub));
+  } catch (e) {
+    console.error("Error saving subscription", e);
+  }
+};
+
+export const getSubscription = (): Subscription | null => {
+  try {
+    const data = localStorage.getItem(SUBSCRIPTION_KEY);
+    return data ? JSON.parse(data) : null;
+  } catch (e) {
+    return null;
+  }
+};
+
+export const removeSubscription = () => {
+  localStorage.removeItem(SUBSCRIPTION_KEY);
+};
+
 export const resetAllProgress = () => {
   localStorage.removeItem(HISTORY_KEY);
   localStorage.removeItem(USED_QUESTIONS_KEY);
+  // We generally do NOT remove subscription on reset progress, 
+  // unless explicitly requested to "Logout"
 };

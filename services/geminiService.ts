@@ -3,14 +3,131 @@ import { getUsedQuestionIds } from "./storageService";
 
 // Global cache for questions fetched from API
 let GLOBAL_QUESTIONS_CACHE: any[] = [];
+let ACTIVE_TIER_MODE: 'free' | 'plus' | 'pro' = 'free';
+
+const CODES_API_URL = 'https://api.sheety.co/e1d05c2504d597feb758d2d88e581b32/activationCode/sheet1';
+
+// Basic Auth Credentials
+// Encodes 'USERNAME:PASSWORD' to Base64
+const AUTH_CREDENTIALS = btoa('DhoomM7mdRakan7madh:DMR722231918');
+const AUTH_HEADER = {
+  'Authorization': `Basic ${AUTH_CREDENTIALS}`
+};
+
+export const setGameTier = (mode: 'free' | 'plus' | 'pro') => {
+  ACTIVE_TIER_MODE = mode;
+  console.log(`Tier set to: ${mode}`);
+};
+
+/**
+ * Verifies an activation code against the Sheety API.
+ * 
+ * Logic:
+ * 1. Fetch all codes.
+ * 2. Find row where:
+ *    - activationCode === input
+ *    - isUsed === 'No'
+ *    - packageType === requiredPackageType
+ */
+export const verifyActivationCode = async (
+  code: string, 
+  requiredTier: 'plus' | 'pro'
+): Promise<{ isValid: boolean; rowId?: number; error?: string }> => {
+  try {
+    // Determine expected package name string in Sheet
+    const expectedPackageType = requiredTier === 'plus' ? 'باقة البلس' : 'باقة البرو';
+
+    // Add timestamp to prevent caching
+    const timestamp = Date.now();
+    const response = await fetch(`${CODES_API_URL}?t=${timestamp}`, { 
+      cache: 'no-store',
+      headers: {
+        ...AUTH_HEADER
+      }
+    });
+
+    if (!response.ok) {
+       console.error("API Error:", response.status, response.statusText);
+       return { isValid: false, error: 'حدث خطأ في الاتصال بقاعدة البيانات' };
+    }
+
+    const json = await response.json();
+    const rows = json.sheet1 || [];
+
+    // Find matching code
+    const match = rows.find((r: any) => {
+      // Normalize comparison (trim spaces)
+      const sheetCode = String(r.activationCode || '').trim();
+      const inputCode = code.trim();
+      const sheetIsUsed = String(r.isUsed || '').trim().toLowerCase(); // 'yes' or 'no'
+      const sheetPackage = String(r.packageType || '').trim();
+
+      return (
+        sheetCode === inputCode &&
+        sheetIsUsed === 'no' &&
+        sheetPackage === expectedPackageType
+      );
+    });
+
+    if (match) {
+      return { isValid: true, rowId: match.id };
+    } else {
+      return { isValid: false, error: 'الكود غير صحيح أو مستخدم مسبقاً أو غير مطابق للباقة المختارة' };
+    }
+
+  } catch (error) {
+    console.error("Error verifying code:", error);
+    return { isValid: false, error: 'حدث خطأ في الاتصال، يرجى المحاولة لاحقاً' };
+  }
+};
+
+/**
+ * Consumes the code by setting isUsed to 'Yes' via PUT request
+ */
+export const consumeActivationCode = async (rowId: number): Promise<boolean> => {
+  try {
+    const url = `${CODES_API_URL}/${rowId}`;
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...AUTH_HEADER
+      },
+      body: JSON.stringify({
+        sheet1: {
+          isUsed: 'Yes'
+        }
+      })
+    });
+
+    if (response.ok) {
+      return true;
+    } else {
+      console.error("Failed to update code status");
+      return false;
+    }
+  } catch (error) {
+    console.error("Error consuming code:", error);
+    return false;
+  }
+};
 
 export const preloadAllQuestions = async (): Promise<boolean> => {
   try {
     // Add timestamp to bypass browser/network caching
     const timestamp = Date.now();
     const response = await fetch(`https://api.sheety.co/e1d05c2504d597feb758d2d88e581b32/dagshny/sheet1?t=${timestamp}`, {
-      cache: 'no-store'
+      cache: 'no-store',
+      headers: {
+        ...AUTH_HEADER
+      }
     });
+
+    if (!response.ok) {
+        console.error("API Error:", response.status, response.statusText);
+        return false;
+    }
+
     const json = await response.json();
     GLOBAL_QUESTIONS_CACHE = json.sheet1 || [];
     console.log("Questions loaded:", GLOBAL_QUESTIONS_CACHE.length);
@@ -26,9 +143,36 @@ export const preloadAllQuestions = async (): Promise<boolean> => {
   }
 };
 
+const filterByTier = (item: any): boolean => {
+  const tier = Number(item.tier);
+  
+  if (ACTIVE_TIER_MODE === 'free') {
+    // Free Version: Fetch/Filter questions where tier == 1
+    return tier === 1;
+  }
+  
+  if (ACTIVE_TIER_MODE === 'plus') {
+    // Plus Pack: Fetch/Filter questions where tier == 2
+    return tier === 2;
+  }
+  
+  if (ACTIVE_TIER_MODE === 'pro') {
+    // Pro Pack: Fetch/Filter questions where tier == 2 OR tier == 3
+    return tier === 2 || tier === 3;
+  }
+
+  return false;
+};
+
 const getQuestionsByCategory = (selectedCategory: string) => {
-  // Use trim() to ensure matches even if there are accidental spaces in the sheet or code
-  return GLOBAL_QUESTIONS_CACHE.filter((item: any) => (item.category || '').trim() === selectedCategory.trim());
+  // 1. Filter by Category Name (trimmed)
+  // 2. Filter by Active Tier Logic
+  return GLOBAL_QUESTIONS_CACHE.filter((item: any) => {
+    const categoryMatch = (item.category || '').trim() === selectedCategory.trim();
+    if (!categoryMatch) return false;
+    
+    return filterByTier(item);
+  });
 };
 
 // Helper to map difficulty text to points
@@ -118,7 +262,8 @@ export const generateQuestionsForCategory = async (categoryName: string): Promis
       questionImg: questionImg, // Strict mapping: undefined if empty in sheet
       answerImg: answerImg,     // Strict mapping: undefined if empty in sheet
       isUsed: false,
-      hint: q.hint
+      hint: q.hint,
+      tier: q.tier
     };
   });
 };
