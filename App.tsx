@@ -22,7 +22,7 @@ import QuestionModal from './components/QuestionModal';
 import CastButton from './components/CastButton';
 import PowerUps from './components/PowerUps';
 
-// Exactly matching the 15 categories requested
+// Updated Categories with new images for 'حنكة' and 'تموينات'
 const CATEGORY_META = [
   { name: "أنمي", img: "https://cdn.aptoide.com/imgs/3/c/9/3c93ccd912c43b3b76175b18f74bd52b_fgraphic.png" },
   { name: "اسلاميات", img: "https://islameyat.vercel.app/Images/Books/book.jpg" },
@@ -30,12 +30,12 @@ const CATEGORY_META = [
   { name: "معلومات عامة", img: "https://cdn.pixabay.com/photo/2023/11/01/19/04/ai-generated-8358821_640.jpg" },
   { name: "علوم", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1767292405/%D8%AE%D9%84%D9%81%D9%8A%D8%A9_%D8%B9%D9%84%D9%88%D9%85_oqowb2.jpg" },
   { name: "قصص الأنبياء", img: "https://play-lh.googleusercontent.com/fjRu2XKWoMJsUU9ukXnWUvNeo2VfZoFh7nYQrEnc69vYairg9hwm_iYeLHfkBCDrvRw" },
-  { name: "حنكة", img: "https://cdn.pixabay.com/photo/2017/02/01/10/24/brain-2029391_1280.png" },
+  { name: "حنكة", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1768417431/Gemini_Generated_Image_lovwuclovwuclovw_1_wiqp98.png" },
   { name: "أعلام", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1767292404/%D8%AE%D9%84%D9%81%D9%8A%D8%A9_%D8%A3%D8%B9%D9%84%D8%A7%D9%85_nrhye6.jpg" },
   { name: "للبنات", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1767356081/photo_2026-01-02_15-12-19_iui6kl.jpg" },
   { name: "حروف", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1767471986/photo_2026-01-03_23-12-56_bebkhb.jpg" },
   { name: "يوتيوب سعودي", img: "https://upload.wikimedia.org/wikipedia/commons/e/ef/Youtube_logo.png" },
-  { name: "تموينات", img: "https://cdn.pixabay.com/photo/2016/11/22/21/57/apparel-1850804_1280.jpg" },
+  { name: "تموينات", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1768416158/06d76b29-d1e6-4ce5-902c-b17bfafaa5f1_mh0y2o.jpg" },
   { name: "كرة قدم سعودية", img: "https://cdn.arabsstock.com/uploads/images/315277/playing-in-the-saudi-professional-thumbnail-315277.webp" },
   { name: "تاريخ", img: "https://iraqination.net/wp-content/uploads/2023/10/%D9%81%D9%88%D8%A7%D8%A6%D8%AF-%D8%AF%D8%B1%D8%A7%D8%B3%D8%A9-%D8%A7%D9%84%D8%AA%D8%A7%D8%B1%D9%8A%D8%AE.jpg" },
   { name: "سيارات", img: "https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=400" }
@@ -133,10 +133,10 @@ const FireworksDisplay = () => (
 const NotificationToast = ({ message }: { message: string | null }) => {
   if (!message) return null;
   return (
-    <div className="fixed top-4 right-4 z-[100] animate-in slide-in-from-right-10 fade-in duration-300">
-      <div className="bg-slate-800 text-white px-6 py-4 rounded-xl shadow-2xl border-r-4 border-orange-500 flex items-center gap-3">
-        <span className="text-2xl">🔔</span>
-        <span className="font-bold text-lg">{message}</span>
+    <div className="fixed top-4 right-4 z-[100] animate-in slide-in-from-right-10 fade-in duration-300 w-[90vw] md:w-auto">
+      <div className="bg-slate-800 text-white px-4 py-3 md:px-6 md:py-4 rounded-xl shadow-2xl border-r-4 border-orange-500 flex items-center gap-3">
+        <span className="text-xl md:text-2xl">🔔</span>
+        <span className="font-bold text-sm md:text-lg">{message}</span>
       </div>
     </div>
   );
@@ -156,7 +156,7 @@ const StatusBadge = ({ tier }: { tier: 'free' | 'plus' | 'pro' }) => {
   }
 
   return (
-    <div className={`absolute top-0 left-1/2 -translate-x-1/2 rounded-b-xl px-6 py-2 shadow-lg z-30 ${bgColor} text-white font-black text-sm md:text-base border-x border-b border-white/20`}>
+    <div className={`absolute top-0 left-1/2 -translate-x-1/2 rounded-b-xl px-4 py-1.5 md:px-6 md:py-2 shadow-lg z-40 ${bgColor} text-white font-black text-xs md:text-base border-x border-b border-white/20 whitespace-nowrap`}>
       {text}
     </div>
   );
@@ -501,7 +501,7 @@ const App: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 items-stretch">
             
-            {/* Free Tier */}
+            {/* Free Tier - Cleaned Description */}
             <button 
               onClick={() => handleTierSelection('free')}
               disabled={!questionsLoaded}
@@ -511,7 +511,7 @@ const App: React.FC = () => {
                 🆓
               </div>
               <h3 className="text-2xl font-black text-slate-700 mb-2">النسخة المجانية</h3>
-              <p className="text-slate-400 text-sm font-bold">أسئلة المستوى الأول</p>
+              {/* <p className="text-slate-400 text-sm font-bold">أسئلة المستوى الأول</p> REMOVED */}
               
               {!questionsLoaded && (
                 <div className="absolute inset-0 bg-white/80 flex items-center justify-center backdrop-blur-sm">
@@ -520,7 +520,7 @@ const App: React.FC = () => {
               )}
             </button>
 
-            {/* Plus Tier */}
+            {/* Plus Tier - Cleaned Description */}
             <button 
               onClick={() => handleTierSelection('plus')}
               disabled={!questionsLoaded}
@@ -531,11 +531,11 @@ const App: React.FC = () => {
                 💎
               </div>
               <h3 className="text-2xl font-black text-blue-700 mb-2">باقة البلس</h3>
-              <p className="text-blue-400 text-sm font-bold mb-4">أسئلة المستوى الثاني فقط</p>
+              {/* <p className="text-blue-400 text-sm font-bold mb-4">أسئلة المستوى الثاني فقط</p> REMOVED */}
 
               {/* Activated Badge */}
               {storedSubscription?.tier === 'plus' && (
-                <div className="bg-green-500 text-white px-4 py-1 rounded-full text-sm font-bold animate-pulse shadow-md">
+                <div className="bg-green-500 text-white px-4 py-1 rounded-full text-sm font-bold animate-pulse shadow-md mt-auto">
                    ✅ مفعلة
                 </div>
               )}
@@ -547,7 +547,7 @@ const App: React.FC = () => {
               )}
             </button>
 
-            {/* Pro Tier */}
+            {/* Pro Tier - Cleaned Description */}
             <button 
               onClick={() => handleTierSelection('pro')}
               disabled={!questionsLoaded}
@@ -558,11 +558,11 @@ const App: React.FC = () => {
                 👑
               </div>
               <h3 className="text-3xl font-black text-yellow-700 mb-2">باقة البرو</h3>
-              <p className="text-yellow-600/70 text-sm font-bold mb-4">شامل المستوى الثاني والثالث</p>
+              {/* <p className="text-yellow-600/70 text-sm font-bold mb-4">شامل المستوى الثاني والثالث</p> REMOVED */}
 
               {/* Activated Badge */}
               {storedSubscription?.tier === 'pro' && (
-                <div className="bg-green-600 text-white px-6 py-1.5 rounded-full text-lg font-bold animate-pulse shadow-lg z-20">
+                <div className="bg-green-600 text-white px-6 py-1.5 rounded-full text-lg font-bold animate-pulse shadow-lg z-20 mt-auto">
                    ✅ مفعلة
                 </div>
               )}
@@ -670,7 +670,7 @@ const App: React.FC = () => {
         <div className="absolute bottom-0 left-0 w-64 h-64 md:w-96 md:h-96 bg-orange-100 rounded-full -ml-32 -mb-32 opacity-50 blur-3xl animate-pulse pointer-events-none"></div>
         
         {/* Content container */}
-        <div className="relative z-10 text-center animate-in zoom-in duration-700 flex flex-col items-center max-h-full">
+        <div className="relative z-10 text-center animate-in zoom-in duration-700 flex flex-col items-center max-h-full w-full">
           <div className="mb-4 md:mb-8 inline-block p-4 md:p-6 rounded-[2rem] md:rounded-[3rem] bg-orange-50 border-4 border-orange-100 shadow-xl shrink-0">
              <span className="text-6xl md:text-9xl">🤔</span>
           </div>
@@ -680,20 +680,20 @@ const App: React.FC = () => {
           </h1>
           
           {/* Action Buttons Container */}
-          <div className="flex flex-col gap-3 md:gap-4 mb-6 md:mb-10 shrink-0 w-full max-w-sm md:max-w-lg">
+          <div className="flex flex-col gap-3 md:gap-4 mb-6 md:mb-10 shrink-0 w-full max-w-sm md:max-w-lg px-4">
             
             {/* Top Row: Two buttons */}
             <div className="flex gap-2 md:gap-4 w-full">
               <button 
                 onClick={() => setIsMobileMode(!isMobileMode)}
-                className="flex-1 px-3 py-2 md:px-6 md:py-3 rounded-2xl bg-slate-100 border-2 border-slate-200 text-slate-600 font-bold hover:bg-slate-200 transition-colors flex items-center justify-center gap-2 cursor-pointer active:scale-95 z-20 text-xs md:text-base"
+                className="flex-1 px-2 py-3 md:px-6 md:py-3 rounded-2xl bg-slate-100 border-2 border-slate-200 text-slate-600 font-bold hover:bg-slate-200 transition-colors flex items-center justify-center gap-1 md:gap-2 cursor-pointer active:scale-95 z-20 text-xs md:text-base whitespace-nowrap"
               >
                 {isMobileMode ? '📱 وضع الجوال' : '💻 وضع الكمبيوتر'}
               </button>
 
               <button 
                 onClick={() => setShowRules(true)}
-                className="flex-1 px-3 py-2 md:px-6 md:py-3 rounded-2xl bg-orange-100 border-2 border-orange-200 text-orange-600 font-bold hover:bg-orange-200 transition-colors flex items-center justify-center gap-2 cursor-pointer active:scale-95 z-20 text-xs md:text-base"
+                className="flex-1 px-2 py-3 md:px-6 md:py-3 rounded-2xl bg-orange-100 border-2 border-orange-200 text-orange-600 font-bold hover:bg-orange-200 transition-colors flex items-center justify-center gap-1 md:gap-2 cursor-pointer active:scale-95 z-20 text-xs md:text-base whitespace-nowrap"
               >
                 📜 كيف تلعب؟
               </button>
@@ -702,7 +702,7 @@ const App: React.FC = () => {
             {/* Bottom Row: Full width History button */}
             <button 
               onClick={() => setShowHistory(true)}
-              className="w-full px-4 py-2 md:px-6 md:py-3 rounded-2xl bg-slate-800 border-2 border-slate-700 text-slate-300 font-bold hover:bg-slate-700 hover:text-white transition-colors flex items-center justify-center gap-2 cursor-pointer active:scale-95 z-20 text-xs md:text-base shadow-md"
+              className="w-full px-4 py-3 md:px-6 md:py-3 rounded-2xl bg-slate-800 border-2 border-slate-700 text-slate-300 font-bold hover:bg-slate-700 hover:text-white transition-colors flex items-center justify-center gap-2 cursor-pointer active:scale-95 z-20 text-xs md:text-base shadow-md"
             >
               📂 ألعابي السابقة
             </button>
@@ -851,13 +851,24 @@ const App: React.FC = () => {
   }
 
   if (gameState.gameStatus === 'setup') {
+    // 2. Sort Logic: Categories with games > 0 first.
+    const sortedCategories = [...CATEGORY_META].map(cat => ({
+      ...cat,
+      count: getCategoryGameCount(cat.name)
+    })).sort((a, b) => {
+      // Sort descending by count (available first), then inactive/zero last
+      if (a.count > 0 && b.count === 0) return -1;
+      if (a.count === 0 && b.count > 0) return 1;
+      return 0; // Keep original order otherwise
+    });
+
     return (
       <div className="h-[100dvh] w-full p-2 md:p-6 flex flex-col items-center overflow-hidden relative">
         
-        {/* Main Screen Status Badge */}
+        {/* Main Screen Status Badge - Increased z-index to avoid clipping */}
         <StatusBadge tier={activeTierMode} />
 
-        {/* Home Button replacing Change Package */}
+        {/* Home Button replacing Change Package - Adjust positioning */}
         <button 
           onClick={() => setGameState(prev => ({ ...prev, gameStatus: 'landing' }))}
           className="absolute top-4 right-4 z-50 bg-white/80 backdrop-blur text-slate-500 hover:text-orange-600 px-3 py-2 rounded-full shadow-md border border-slate-200 hover:border-orange-200 transition-all active:scale-95 group text-xs md:text-sm font-bold flex items-center gap-2"
@@ -869,7 +880,8 @@ const App: React.FC = () => {
           </svg>
         </button>
 
-        <header className="mb-2 md:mb-4 text-center animate-in slide-in-from-top-12 duration-500 shrink-0 mt-8">
+        {/* Header - Added padding-top to clear absolute elements on mobile */}
+        <header className="mb-2 md:mb-4 text-center animate-in slide-in-from-top-12 duration-500 shrink-0 mt-12 md:mt-8 pt-2">
           <h1 className="text-4xl md:text-6xl font-black text-orange-600 mb-1 md:mb-2 drop-shadow-xl tracking-tighter">داقشني</h1>
           <p className="text-sm md:text-xl text-slate-400 font-bold bg-white px-4 py-1 md:px-8 md:py-2 rounded-full shadow-sm inline-block">
              اختر 6 فئات ({selectedCategories.length}/6)
@@ -878,9 +890,12 @@ const App: React.FC = () => {
 
         {/* Categories Grid - Scrollable */}
         <div key={refreshKey} className="flex-1 w-full max-w-7xl grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-6 p-2 overflow-y-auto min-h-0 content-start">
-          {CATEGORY_META.map(cat => {
-            const gameCount = getCategoryGameCount(cat.name);
+          {sortedCategories.map(cat => {
+            const gameCount = cat.count;
             const isExhausted = gameCount === 0;
+            // 3. Logic: Specific tier messaging for 'حنكة' & 'تموينات'
+            const isProExclusive = (cat.name === 'حنكة' || cat.name === 'تموينات') && activeTierMode !== 'pro';
+
             return (
               <button
                 key={cat.name}
@@ -910,8 +925,8 @@ const App: React.FC = () => {
                 )}
                 
                 {isExhausted && (
-                  <div className="absolute top-2 left-2 bg-red-600 text-white text-[8px] md:text-[10px] px-2 py-1 rounded-full font-bold z-20 shadow-lg whitespace-nowrap">
-                    انتهت الالعاب 🏁
+                  <div className={`absolute top-2 left-2 text-white text-[8px] md:text-[10px] px-2 py-1 rounded-full font-bold z-20 shadow-lg whitespace-nowrap ${isProExclusive ? 'bg-yellow-600' : 'bg-red-600'}`}>
+                    {isProExclusive ? 'متوفرة في باقة برو 👑' : 'انتهت الالعاب 🏁'}
                   </div>
                 )}
 
