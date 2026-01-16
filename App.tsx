@@ -39,7 +39,7 @@ const CATEGORY_META = [
   { name: "أعلام", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1767292404/%D8%AE%D9%84%D9%81%D9%8A%D8%A9_%D8%A3%D8%B9%D9%84%D8%A7%D9%85_nrhye6.jpg" },
   { name: "للبنات", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1767356081/photo_2026-01-02_15-12-19_iui6kl.jpg" },
   { name: "حروف", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1767471986/photo_2026-01-03_23-12-56_bebkhb.jpg" },
-  { name: "يوتيوب سعودي", img: "https://upload.wikimedia.org/wikipedia/commons/e/ef/Youtube_logo.png" },
+  { name: "يوتيوب سعودي", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1768594989/youtube_saudi_vuapbx.png" },
   { name: "تموينات", img: "https://res.cloudinary.com/dz3uyz8ko/image/upload/v1768416158/06d76b29-d1e6-4ce5-902c-b17bfafaa5f1_mh0y2o.jpg" },
   { name: "كرة قدم سعودية", img: "https://cdn.arabsstock.com/uploads/images/315277/playing-in-the-saudi-professional-thumbnail-315277.webp" },
   { name: "تاريخ", img: "https://iraqination.net/wp-content/uploads/2023/10/%D9%81%D9%88%D8%A7%D8%A6%D8%AF-%D8%AF%D8%B1%D8%A7%D8%B3%D8%A9-%D8%A7%D9%84%D8%AA%D8%A7%D8%B1%D9%8A%D8%AE.jpg" },
