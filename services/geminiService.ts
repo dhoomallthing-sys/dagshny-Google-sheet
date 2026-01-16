@@ -204,6 +204,16 @@ export const getCategoryGameCount = (categoryName: string): number => {
   return Math.floor(minCount / 2);
 };
 
+// Helper function for Fisher-Yates Shuffle
+const shuffleArray = <T>(array: T[]): T[] => {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
+
 export const generateQuestionsForCategory = async (categoryName: string): Promise<Question[]> => {
   if (GLOBAL_QUESTIONS_CACHE.length === 0) {
       await preloadAllQuestions();
@@ -224,7 +234,8 @@ export const generateQuestionsForCategory = async (categoryName: string): Promis
   // Filtering out questions that are already in 'usedIds'
   const getRandom = (arr: typeof indexedQuestions, n: number) => {
     const available = arr.filter(entry => !usedIds.includes(`${categoryName}-${entry.originalIndex}`));
-    const shuffled = [...available].sort(() => 0.5 - Math.random());
+    // Use Fisher-Yates shuffle for true randomization
+    const shuffled = shuffleArray(available);
     return shuffled.slice(0, n);
   };
 
