@@ -21,29 +21,17 @@ export const setGameTier = (mode: 'free' | 'plus' | 'pro') => {
 
 /**
  * Verifies an activation code against the Sheety API.
- * 
- * Logic:
- * 1. Fetch all codes.
- * 2. Find row where:
- *    - activationCode === input
- *    - isUsed === 'No'
- *    - packageType === requiredPackageType
  */
 export const verifyActivationCode = async (
   code: string, 
   requiredTier: 'plus' | 'pro'
 ): Promise<{ isValid: boolean; rowId?: number; error?: string }> => {
   try {
-    // Determine expected package name string in Sheet
     const expectedPackageType = requiredTier === 'plus' ? 'باقة البلس' : 'باقة البرو';
-
-    // Add timestamp to prevent caching
     const timestamp = Date.now();
     const response = await fetch(`${CODES_API_URL}?t=${timestamp}`, { 
       cache: 'no-store',
-      headers: {
-        ...AUTH_HEADER
-      }
+      headers: { ...AUTH_HEADER }
     });
 
     if (!response.ok) {
@@ -54,12 +42,10 @@ export const verifyActivationCode = async (
     const json = await response.json();
     const rows = json.sheet1 || [];
 
-    // Find matching code
     const match = rows.find((r: any) => {
-      // Normalize comparison (trim spaces)
       const sheetCode = String(r.activationCode || '').trim();
       const inputCode = code.trim();
-      const sheetIsUsed = String(r.isUsed || '').trim().toLowerCase(); // 'yes' or 'no'
+      const sheetIsUsed = String(r.isUsed || '').trim().toLowerCase(); 
       const sheetPackage = String(r.packageType || '').trim();
 
       return (
@@ -82,7 +68,7 @@ export const verifyActivationCode = async (
 };
 
 /**
- * Consumes the code by setting isUsed to 'Yes' via PUT request
+ * Consumes the code by setting isUsed to 'Yes'
  */
 export const consumeActivationCode = async (rowId: number): Promise<boolean> => {
   try {
@@ -112,15 +98,46 @@ export const consumeActivationCode = async (rowId: number): Promise<boolean> => 
   }
 };
 
+/**
+ * Fetches the remaining games for a specific activation code.
+ * Used for verifying quota after a game session.
+ */
+export const getRemainingGames = async (code: string): Promise<number | null> => {
+  try {
+    const timestamp = Date.now();
+    const response = await fetch(`${CODES_API_URL}?t=${timestamp}`, { 
+      cache: 'no-store',
+      headers: { ...AUTH_HEADER }
+    });
+
+    if (!response.ok) {
+       return null;
+    }
+
+    const json = await response.json();
+    const rows = json.sheet1 || [];
+    
+    // Find the row corresponding to this user's code
+    const match = rows.find((r: any) => String(r.activationCode || '').trim() === code.trim());
+
+    if (match && match.remainingGames !== undefined && match.remainingGames !== null && match.remainingGames !== '') {
+      const remaining = parseInt(match.remainingGames, 10);
+      return isNaN(remaining) ? null : remaining;
+    }
+    
+    return null; // Quota column doesn't exist or is empty (implies unlimited or untracked)
+  } catch (error) {
+    console.error("Error fetching quota:", error);
+    return null;
+  }
+};
+
 export const preloadAllQuestions = async (): Promise<boolean> => {
   try {
-    // Add timestamp to bypass browser/network caching
     const timestamp = Date.now();
     const response = await fetch(`https://api.sheety.co/e1d05c2504d597feb758d2d88e581b32/dagshny/sheet1?t=${timestamp}`, {
       cache: 'no-store',
-      headers: {
-        ...AUTH_HEADER
-      }
+      headers: { ...AUTH_HEADER }
     });
 
     if (!response.ok) {
@@ -131,11 +148,6 @@ export const preloadAllQuestions = async (): Promise<boolean> => {
     const json = await response.json();
     GLOBAL_QUESTIONS_CACHE = json.sheet1 || [];
     console.log("Questions loaded:", GLOBAL_QUESTIONS_CACHE.length);
-    
-    // Debug: Log unique categories found in the sheet to help verify spelling
-    const categories = new Set(GLOBAL_QUESTIONS_CACHE.map((q: any) => q.category?.trim()));
-    console.log("Categories found in Sheet:", Array.from(categories));
-    
     return true;
   } catch (error) {
     console.error("Error fetching questions:", error);
@@ -146,44 +158,28 @@ export const preloadAllQuestions = async (): Promise<boolean> => {
 const filterByTier = (item: any): boolean => {
   const tier = Number(item.tier);
   
-  if (ACTIVE_TIER_MODE === 'free') {
-    // Free Version: Fetch/Filter questions where tier == 1
-    return tier === 1;
-  }
-  
-  if (ACTIVE_TIER_MODE === 'plus') {
-    // Plus Pack: Fetch/Filter questions where tier == 2
-    return tier === 2;
-  }
-  
-  if (ACTIVE_TIER_MODE === 'pro') {
-    // Pro Pack: Fetch/Filter questions where tier == 2 OR tier == 3
-    return tier === 2 || tier === 3;
-  }
+  if (ACTIVE_TIER_MODE === 'free') return tier === 1;
+  if (ACTIVE_TIER_MODE === 'plus') return tier === 2;
+  if (ACTIVE_TIER_MODE === 'pro') return tier === 2 || tier === 3;
 
   return false;
 };
 
 const getQuestionsByCategory = (selectedCategory: string) => {
-  // 1. Filter by Category Name (trimmed)
-  // 2. Filter by Active Tier Logic
   return GLOBAL_QUESTIONS_CACHE.filter((item: any) => {
     const categoryMatch = (item.category || '').trim() === selectedCategory.trim();
     if (!categoryMatch) return false;
-    
     return filterByTier(item);
   });
 };
 
-// Helper to map difficulty text to points
 const getPoints = (item: any): number => {
   const diff = String(item.difficulty || '').toLowerCase();
   if (diff.includes('400') || diff.includes('متوسط') || diff.includes('medium')) return 400;
   if (diff.includes('600') || diff.includes('صعب') || diff.includes('hard')) return 600;
-  return 200; // Default to Easy
+  return 200; 
 };
 
-// Function to calculate how many full games are available for a category
 export const getCategoryGameCount = (categoryName: string): number => {
   const questions = getQuestionsByCategory(categoryName);
   if (!questions || questions.length === 0) return 0;
@@ -203,13 +199,11 @@ export const getCategoryGameCount = (categoryName: string): number => {
     else if (p === 600) hardCount++;
   });
   
-  // A game needs 2 easy, 2 medium, 2 hard.
   const minCount = Math.min(easyCount, mediumCount, hardCount);
   return Math.floor(minCount / 2);
 };
 
 export const generateQuestionsForCategory = async (categoryName: string): Promise<Question[]> => {
-  // Ensure data is loaded
   if (GLOBAL_QUESTIONS_CACHE.length === 0) {
       await preloadAllQuestions();
   }
@@ -219,14 +213,13 @@ export const generateQuestionsForCategory = async (categoryName: string): Promis
 
   const usedIds = getUsedQuestionIds();
 
-  // Map to a structure that includes the original index for ID generation
   const indexedQuestions = categoryQuestions.map((item, index) => ({
     item,
     originalIndex: index,
     points: getPoints(item)
   }));
 
-  // Helper to get random unique items that are NOT used
+  // Filtering out questions that are already in 'usedIds'
   const getRandom = (arr: typeof indexedQuestions, n: number) => {
     const available = arr.filter(entry => !usedIds.includes(`${categoryName}-${entry.originalIndex}`));
     const shuffled = [...available].sort(() => 0.5 - Math.random());
@@ -244,23 +237,18 @@ export const generateQuestionsForCategory = async (categoryName: string): Promis
     const index = entry.originalIndex;
     const p = entry.points as Points;
 
-    // Strict Image Mapping based on Sheet Columns
-    // theImageOnQuestionScreen -> Appears ONLY on Question Screen
-    // theImageOnAnswerScreen -> Appears ONLY on Answer Screen
     const questionImg = q.theImageOnQuestionScreen;
     const answerImg = q.theImageOnAnswerScreen;
 
     return {
-      // Deterministic ID for storage tracking: category-index
       id: `${categoryName}-${index}`, 
       category: categoryName,
       question: q.question,
       answer: q.answer,
       points: p,
-      // Legacy imageUrl (not actively used in Modal but good for data completeness)
       imageUrl: questionImg || answerImg, 
-      questionImg: questionImg, // Strict mapping: undefined if empty in sheet
-      answerImg: answerImg,     // Strict mapping: undefined if empty in sheet
+      questionImg: questionImg,
+      answerImg: answerImg,
       isUsed: false,
       hint: q.hint,
       tier: q.tier

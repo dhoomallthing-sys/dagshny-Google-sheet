@@ -6,7 +6,8 @@ import {
   preloadAllQuestions, 
   setGameTier, 
   verifyActivationCode, 
-  consumeActivationCode
+  consumeActivationCode,
+  getRemainingGames
 } from './services/geminiService';
 import { 
   getGameHistory, 
@@ -16,7 +17,9 @@ import {
   GameHistoryItem,
   getSubscription,
   saveSubscription,
-  removeSubscription
+  saveCurrentGameState,
+  loadCurrentGameState,
+  clearCurrentGameState
 } from './services/storageService';
 import QuestionModal from './components/QuestionModal';
 import CastButton from './components/CastButton';
@@ -169,6 +172,12 @@ const App: React.FC = () => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [history, setHistory] = useState<GameHistoryItem[]>([]);
   const [notification, setNotification] = useState<string | null>(null);
+  
+  // New State for checking if a saved game exists
+  const [hasSavedGame, setHasSavedGame] = useState(false);
+  // State to hold details of the active game for display in modal
+  const [activeGameDetails, setActiveGameDetails] = useState<GameState | null>(null);
+
   const [gameState, setGameState] = useState<GameState>({
     teams: [{ name: '', score: 0 }, { name: '', score: 0 }],
     currentTurn: 0,
@@ -202,6 +211,12 @@ const App: React.FC = () => {
     const sub = getSubscription();
     setStoredSubscription(sub);
 
+    // 2. Check for saved game state
+    const savedGame = loadCurrentGameState();
+    if (savedGame) {
+      setHasSavedGame(true);
+    }
+
     if (sub) {
       setGameTier(sub.tier);
       setActiveTierMode(sub.tier);
@@ -212,7 +227,7 @@ const App: React.FC = () => {
        setActiveTierMode('free');
     }
 
-    // 2. Preload data for ALL categories to ensure game counts are accurate
+    // 3. Preload data for ALL categories to ensure game counts are accurate
     preloadAllQuestions().then((hasData) => {
       if (hasData) {
         setQuestionsLoaded(true);
@@ -225,10 +240,12 @@ const App: React.FC = () => {
   useEffect(() => {
     if (showHistory) {
       setHistory(getGameHistory());
+      // Load active game details to display in the modal
+      setActiveGameDetails(loadCurrentGameState());
     }
   }, [showHistory]);
 
-  // When game finishes, save data
+  // When game finishes, save data and CHECK QUOTA
   useEffect(() => {
     if (gameState.gameStatus === 'finished') {
       const winnerIndex = gameState.teams[0].score > gameState.teams[1].score 
@@ -245,9 +262,29 @@ const App: React.FC = () => {
         winnerIndex
       });
 
-      // 2. Mark Used Questions
-      const allQuestionIds = gameState.categories.flatMap(c => c.questions.map(q => q.id));
-      markQuestionsAsUsed(allQuestionIds);
+      // 2. Clear the active saved game because it's finished
+      clearCurrentGameState();
+      setHasSavedGame(false);
+      setActiveGameDetails(null);
+
+      // 3. Verify Code Quota if user has a subscription
+      if (storedSubscription && storedSubscription.tier !== 'free') {
+        getRemainingGames(storedSubscription.activationCode).then(quota => {
+          if (quota !== null) {
+            if (quota <= 0) {
+              // Quota exhausted - Downgrade to free
+              const freeSub: Subscription = { tier: 'free', activationCode: 'FREE', date: new Date().toISOString() };
+              saveSubscription(freeSub);
+              setStoredSubscription(freeSub);
+              setGameTier('free');
+              setActiveTierMode('free');
+              alert("⚠️ انتهى رصيد الألعاب الخاص بك! تم تحويلك للنسخة المجانية.");
+            } else {
+              showNotification(`المباريات المتبقية في رصيدك: ${quota}`);
+            }
+          }
+        });
+      }
     }
   }, [gameState.gameStatus]);
 
@@ -261,6 +298,13 @@ const App: React.FC = () => {
     const isUnlocked = tier === 'free' || (storedSubscription && storedSubscription.tier === tier);
 
     if (isUnlocked) {
+      // IF FREE TIER: Save persistence so user skips this screen next time
+      if (tier === 'free' && !storedSubscription) {
+         const freeSub: Subscription = { tier: 'free', activationCode: 'FREE', date: new Date().toISOString() };
+         saveSubscription(freeSub);
+         setStoredSubscription(freeSub);
+      }
+
       // Direct Access Logic
       setGameTier(tier);
       setActiveTierMode(tier);
@@ -315,6 +359,11 @@ const App: React.FC = () => {
   };
 
   const handleStartGame = async () => {
+    // Starting a FRESH game, so clear any saved state
+    clearCurrentGameState();
+    setHasSavedGame(false);
+    setActiveGameDetails(null);
+
     setGameState(prev => ({ ...prev, gameStatus: 'loading' }));
     setLoadingMsg("جاري تجهيز الأسئلة...");
     
@@ -332,15 +381,48 @@ const App: React.FC = () => {
         };
       });
 
-      setGameState(prev => ({ ...prev, categories, gameStatus: 'playing' }));
+      // --- UNIQUE QUESTION SELECTION / EARLY DEDUCTION LOGIC ---
+      // Extract all Question IDs from the generated categories
+      const allQuestionIds = categories.flatMap(c => c.questions.map(q => q.id));
+      
+      // Mark them as used immediately in LocalStorage
+      // This ensures that even if the user refreshes or exits, these questions 
+      // are considered "spent" and filtered out in future selections.
+      if (allQuestionIds.length > 0) {
+        markQuestionsAsUsed(allQuestionIds);
+      }
+
+      const newGameState: GameState = { ...gameState, categories, gameStatus: 'playing' };
+      setGameState(newGameState);
+      
+      // Save initial state for "Resume" feature
+      saveCurrentGameState(newGameState);
+
     } catch (e) {
       alert("حدث خطأ في تحميل الأسئلة، يرجى المحاولة مرة أخرى.");
       setGameState(prev => ({ ...prev, gameStatus: 'setup' }));
     }
   };
 
+  const handleResumeGame = () => {
+    const saved = loadCurrentGameState();
+    if (saved) {
+      setGameState(saved);
+      // Assuming questions are already loaded in the saved state object
+      // No need to mark questions as used here; they were marked when this session started.
+      showNotification("تم استعادة اللعبة السابقة بنجاح! ▶️");
+    } else {
+      showNotification("عذراً، لا توجد لعبة محفوظة.");
+      setHasSavedGame(false);
+      setActiveGameDetails(null);
+    }
+  };
+
   const handlePlayAgain = () => {
     setSelectedCategories([]);
+    clearCurrentGameState();
+    setHasSavedGame(false);
+    setActiveGameDetails(null);
     setRefreshKey(prev => prev + 1); // Refresh categories availability
     setGameState({
       teams: [{ name: '', score: 0 }, { name: '', score: 0 }],
@@ -357,8 +439,16 @@ const App: React.FC = () => {
   };
 
   const handleBackToHome = () => {
+    // When manually going back to home, we do NOT clear the game state, 
+    // allowing the user to resume later if they wish.
     setSelectedCategories([]);
     setRefreshKey(prev => prev + 1);
+    
+    // Check if there is a saved game to update button state
+    const saved = loadCurrentGameState();
+    setHasSavedGame(!!saved);
+    setActiveGameDetails(saved);
+
     setGameState({
       teams: [{ name: '', score: 0 }, { name: '', score: 0 }],
       currentTurn: 0,
@@ -376,6 +466,8 @@ const App: React.FC = () => {
   const handleResetProgress = () => {
     resetAllProgress();
     setHistory([]);
+    setHasSavedGame(false);
+    setActiveGameDetails(null);
     setShowResetConfirm(false);
     showNotification("تم مسح السجل والتقدم بنجاح! 🗑️");
     setRefreshKey(prev => prev + 1);
@@ -420,14 +512,20 @@ const App: React.FC = () => {
   };
 
   const switchTurn = () => {
-    setGameState(prev => ({ ...prev, currentTurn: (prev.currentTurn + 1) % 2 }));
+    setGameState(prev => {
+      const newState = { ...prev, currentTurn: (prev.currentTurn + 1) % 2 };
+      saveCurrentGameState(newState); // Save on turn switch
+      return newState;
+    });
   };
 
   const adjustScore = (teamIndex: number, amount: number) => {
     setGameState(prev => {
       const newTeams = [...prev.teams];
       newTeams[teamIndex].score += amount;
-      return { ...prev, teams: newTeams as [any, any] };
+      const newState = { ...prev, teams: newTeams as [any, any] };
+      saveCurrentGameState(newState); // Save on score adjustment
+      return newState;
     });
   };
 
@@ -470,7 +568,7 @@ const App: React.FC = () => {
 
       const isFinished = updatedCats.every(c => c.questions.every(question => question.isUsed));
 
-      return {
+      const newState = {
         ...prev,
         teams: newTeams as [any, any],
         categories: updatedCats,
@@ -480,6 +578,15 @@ const App: React.FC = () => {
         currentTurn: (prev.currentTurn + 1) % 2,
         gameStatus: isFinished ? 'finished' : 'playing'
       };
+
+      // Save Game State to Persistent Storage
+      if (!isFinished) {
+        saveCurrentGameState(newState);
+      } else {
+        clearCurrentGameState(); // Clear if finished
+      }
+
+      return newState;
     });
   };
 
@@ -511,7 +618,6 @@ const App: React.FC = () => {
                 🆓
               </div>
               <h3 className="text-2xl font-black text-slate-700 mb-2">النسخة المجانية</h3>
-              {/* <p className="text-slate-400 text-sm font-bold">أسئلة المستوى الأول</p> REMOVED */}
               
               {!questionsLoaded && (
                 <div className="absolute inset-0 bg-white/80 flex items-center justify-center backdrop-blur-sm">
@@ -531,7 +637,6 @@ const App: React.FC = () => {
                 💎
               </div>
               <h3 className="text-2xl font-black text-blue-700 mb-2">باقة البلس</h3>
-              {/* <p className="text-blue-400 text-sm font-bold mb-4">أسئلة المستوى الثاني فقط</p> REMOVED */}
 
               {/* Activated Badge */}
               {storedSubscription?.tier === 'plus' && (
@@ -558,7 +663,6 @@ const App: React.FC = () => {
                 👑
               </div>
               <h3 className="text-3xl font-black text-yellow-700 mb-2">باقة البرو</h3>
-              {/* <p className="text-yellow-600/70 text-sm font-bold mb-4">شامل المستوى الثاني والثالث</p> REMOVED */}
 
               {/* Activated Badge */}
               {storedSubscription?.tier === 'pro' && (
@@ -671,10 +775,10 @@ const App: React.FC = () => {
         
         {/* Content container */}
         <div className="relative z-10 text-center animate-in zoom-in duration-700 flex flex-col items-center max-h-full w-full">
-          <div className="mb-4 md:mb-8 inline-block p-4 md:p-6 rounded-[2rem] md:rounded-[3rem] bg-orange-50 border-4 border-orange-100 shadow-xl shrink-0">
+          <div className="mb-4 md:mb-6 inline-block p-4 md:p-6 rounded-[2rem] md:rounded-[3rem] bg-orange-50 border-4 border-orange-100 shadow-xl shrink-0 mt-20 md:mt-24">
              <span className="text-6xl md:text-9xl">🤔</span>
           </div>
-          {/* Scaled down title by 10% (scale-90) */}
+          {/* Scaled down title by 10% (scale-90) - Added mt-20 to prevent overlap */}
           <h1 className="text-6xl md:text-8xl lg:text-[10rem] font-black text-orange-600 leading-none tracking-tighter mb-4 md:mb-6 drop-shadow-2xl transform scale-90">
             داقشني
           </h1>
@@ -712,12 +816,31 @@ const App: React.FC = () => {
             onClick={() => setGameState(prev => ({ ...prev, gameStatus: 'setup' }))}
             className="group relative px-12 py-5 md:px-20 md:py-8 orange-gradient text-white rounded-full text-2xl md:text-4xl font-black shadow-[0_20px_50px_rgba(249,115,22,0.4)] hover:scale-110 hover:shadow-orange-500/60 transition-all duration-300 cursor-pointer z-20"
           >
-            <span className="relative z-10">ابدأ اللعبة</span>
+            <span className="relative z-10">ابدأ لعبة جديدة</span>
             <div className="absolute inset-0 rounded-full bg-white opacity-0 group-hover:opacity-20 transition-opacity"></div>
           </button>
+
+          {/* CONTINUE GAME SECTION */}
+          {hasSavedGame && (
+             <div className="mt-8 animate-in slide-in-from-bottom-5 fade-in w-full max-w-sm md:max-w-lg px-4">
+                <div className="flex items-center gap-3 mb-2 justify-center">
+                  <div className="h-px bg-slate-200 flex-1"></div>
+                  <span className="text-slate-400 text-sm font-bold">ألعابك الحالية</span>
+                  <div className="h-px bg-slate-200 flex-1"></div>
+                </div>
+                <button 
+                  onClick={handleResumeGame}
+                  className="w-full relative px-8 py-4 bg-white border-2 border-green-500 text-green-600 rounded-2xl text-xl font-black shadow-lg hover:shadow-green-500/20 hover:scale-105 transition-all flex items-center justify-center gap-2"
+                >
+                  <span>▶️</span>
+                  <span>إكمال اللعبة</span>
+                  <span className="absolute top-0 left-0 w-3 h-3 bg-green-500 rounded-full animate-ping"></span>
+                </button>
+             </div>
+          )}
         </div>
 
-        {/* History Modal */}
+        {/* History Modal - Shows both unfinished active game AND finished history */}
         {showHistory && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
             <div className="bg-slate-900 p-6 md:p-8 rounded-[2rem] shadow-2xl max-w-2xl w-full border-4 border-slate-700 relative max-h-[85vh] overflow-y-auto text-white">
@@ -729,7 +852,61 @@ const App: React.FC = () => {
                </button>
                <h2 className="text-2xl md:text-3xl font-black text-orange-500 mb-6 text-center border-b border-slate-700 pb-4">ألعابي السابقة 📂</h2>
                
-               {history.length === 0 ? (
+               {/* 1. Unfinished / Active Game Card (If Exists) */}
+               {activeGameDetails && (
+                 <div className="bg-slate-800 rounded-2xl p-4 border-2 border-green-500/50 flex flex-col gap-3 mb-6 relative overflow-hidden animate-in slide-in-from-left-4 shadow-lg shadow-green-900/20">
+                   <div className="absolute top-0 right-0 bg-green-600 text-white px-4 py-1 rounded-bl-xl text-xs font-bold shadow-md z-10">
+                      جاري اللعب ⏳
+                   </div>
+
+                   <div className="flex justify-between items-start border-b border-slate-700 pb-2 mt-4">
+                       <span className="text-xs text-slate-400 font-mono">جلسة حالية (غير منتهية)</span>
+                       <span className="text-2xl animate-pulse">▶️</span>
+                   </div>
+
+                   <div className="flex justify-around items-center bg-slate-900/50 p-3 rounded-xl">
+                         <div className="text-center text-slate-300">
+                           <div className="font-black text-xl">{activeGameDetails.teams[0].score}</div>
+                           <div className="text-xs opacity-70">{activeGameDetails.teams[0].name}</div>
+                         </div>
+                         <span className="text-slate-600 font-black text-xl">VS</span>
+                         <div className="text-center text-slate-300">
+                           <div className="font-black text-xl">{activeGameDetails.teams[1].score}</div>
+                           <div className="text-xs opacity-70">{activeGameDetails.teams[1].name}</div>
+                         </div>
+                   </div>
+
+                   {/* Category Thumbnails for Active Game */}
+                   <div className="flex gap-2 flex-wrap justify-center mt-1">
+                     {activeGameDetails.categories.map((cat, cIdx) => (
+                         <div key={cIdx} className="relative group cursor-help">
+                           <div className="w-10 h-10 md:w-12 md:h-12 rounded-full border-2 border-slate-600 overflow-hidden bg-slate-900 shadow-md">
+                               <img src={cat.imageUrl} alt={cat.name} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" />
+                           </div>
+                         </div>
+                     ))}
+                   </div>
+
+                   <button 
+                     onClick={() => { setShowHistory(false); handleResumeGame(); }}
+                     className="w-full mt-2 bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl transition-colors shadow-lg flex items-center justify-center gap-2"
+                   >
+                     <span>▶️</span> إكمال اللعب
+                   </button>
+                 </div>
+               )}
+
+               {/* Separator if both exist */}
+               {activeGameDetails && history.length > 0 && (
+                 <div className="flex items-center gap-3 mb-4 opacity-50">
+                    <div className="h-px bg-slate-600 flex-1"></div>
+                    <span className="text-xs text-slate-400 font-bold">الألعاب المنتهية</span>
+                    <div className="h-px bg-slate-600 flex-1"></div>
+                 </div>
+               )}
+
+               {/* 2. Finished Games List */}
+               {history.length === 0 && !activeGameDetails ? (
                  <div className="text-center text-slate-500 py-10 text-lg">
                    لا يوجد سجل ألعاب سابقة حتى الآن.
                  </div>
@@ -783,7 +960,7 @@ const App: React.FC = () => {
                <div className="mt-8 pt-4 border-t border-slate-700">
                  {!showResetConfirm ? (
                    <button 
-                     disabled={history.length === 0}
+                     disabled={history.length === 0 && !activeGameDetails}
                      onClick={() => setShowResetConfirm(true)}
                      className="w-full bg-red-900/30 text-red-400 border border-red-900/50 py-3 rounded-xl font-bold hover:bg-red-900/50 hover:text-red-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                    >
@@ -888,54 +1065,56 @@ const App: React.FC = () => {
           </p>
         </header>
 
-        {/* Categories Grid - Scrollable */}
-        <div key={refreshKey} className="flex-1 w-full max-w-7xl grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-6 p-2 overflow-y-auto min-h-0 content-start">
-          {sortedCategories.map(cat => {
-            const gameCount = cat.count;
-            const isExhausted = gameCount === 0;
-            // 3. Logic: Specific tier messaging for 'حنكة' & 'تموينات'
-            const isProExclusive = (cat.name === 'حنكة' || cat.name === 'تموينات') && activeTierMode !== 'pro';
+        {/* Categories Grid - Scrollable - Refined for mobile/tablet */}
+        <div key={refreshKey} className="flex-1 w-full max-w-7xl overflow-y-auto min-h-0 px-4 pb-24">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6 content-start">
+            {sortedCategories.map(cat => {
+              const gameCount = cat.count;
+              const isExhausted = gameCount === 0;
+              // 3. Logic: Specific tier messaging for 'حنكة' & 'تموينات'
+              const isProExclusive = (cat.name === 'حنكة' || cat.name === 'تموينات') && activeTierMode !== 'pro';
 
-            return (
-              <button
-                key={cat.name}
-                disabled={isExhausted}
-                onClick={() => {
-                  if (selectedCategories.includes(cat.name)) {
-                    setSelectedCategories(selectedCategories.filter(s => s !== cat.name));
-                  } else if (selectedCategories.length < 6) {
-                    setSelectedCategories([...selectedCategories, cat.name]);
-                  }
-                }}
-                className={`relative aspect-[4/3] rounded-xl md:rounded-[1.5rem] overflow-hidden border-2 md:border-4 transition-all group flex flex-col ${
-                  isExhausted 
-                    ? 'border-slate-200 opacity-50 grayscale cursor-not-allowed'
-                    : selectedCategories.includes(cat.name) 
-                        ? 'border-orange-500 scale-[1.02] shadow-xl z-10' 
-                        : 'border-white hover:border-orange-200 shadow-md opacity-90 hover:opacity-100'
-                }`}
-              >
-                <img src={cat.img} className="absolute inset-0 w-full h-full object-cover" alt={cat.name} />
-                
-                {/* Games Remaining Badge */}
-                {!isExhausted && (
-                  <div className="absolute top-2 left-2 bg-slate-900/80 backdrop-blur-sm text-white text-[10px] md:text-xs px-2 py-1 rounded-full font-bold border border-slate-700 z-20 shadow-lg">
-                    {gameCount} ألعاب
-                  </div>
-                )}
-                
-                {isExhausted && (
-                  <div className={`absolute top-2 left-2 text-white text-[8px] md:text-[10px] px-2 py-1 rounded-full font-bold z-20 shadow-lg whitespace-nowrap ${isProExclusive ? 'bg-yellow-600' : 'bg-red-600'}`}>
-                    {isProExclusive ? 'متوفرة في باقة برو 👑' : 'انتهت الالعاب 🏁'}
-                  </div>
-                )}
+              return (
+                <button
+                  key={cat.name}
+                  disabled={isExhausted}
+                  onClick={() => {
+                    if (selectedCategories.includes(cat.name)) {
+                      setSelectedCategories(selectedCategories.filter(s => s !== cat.name));
+                    } else if (selectedCategories.length < 6) {
+                      setSelectedCategories([...selectedCategories, cat.name]);
+                    }
+                  }}
+                  className={`relative aspect-[4/3] rounded-xl md:rounded-[1.5rem] overflow-hidden border-2 md:border-4 transition-all group flex flex-col ${
+                    isExhausted 
+                      ? 'border-slate-200 opacity-50 grayscale cursor-not-allowed'
+                      : selectedCategories.includes(cat.name) 
+                          ? 'border-orange-500 scale-[1.02] shadow-xl z-10' 
+                          : 'border-white hover:border-orange-200 shadow-md opacity-90 hover:opacity-100'
+                  }`}
+                >
+                  <img src={cat.img} className="absolute inset-0 w-full h-full object-cover" alt={cat.name} />
+                  
+                  {/* Games Remaining Badge */}
+                  {!isExhausted && (
+                    <div className="absolute top-2 left-2 bg-slate-900/80 backdrop-blur-sm text-white text-[10px] md:text-xs px-2 py-1 rounded-full font-bold border border-slate-700 z-20 shadow-lg">
+                      {gameCount} ألعاب
+                    </div>
+                  )}
+                  
+                  {isExhausted && (
+                    <div className={`absolute top-2 left-2 text-white text-[8px] md:text-[10px] px-2 py-1 rounded-full font-bold z-20 shadow-lg whitespace-nowrap ${isProExclusive ? 'bg-yellow-600' : 'bg-red-600'}`}>
+                      {isProExclusive ? 'متوفرة في باقة برو 👑' : 'انتهت الالعاب 🏁'}
+                    </div>
+                  )}
 
-                <div className={`absolute inset-0 flex items-center justify-center p-2 text-center bg-black/40 transition-colors ${selectedCategories.includes(cat.name) ? 'bg-orange-600/80' : ''}`}>
-                  <span className="text-white text-sm md:text-2xl font-black drop-shadow-2xl">{cat.name}</span>
-                </div>
-              </button>
-            );
-          })}
+                  <div className={`absolute inset-0 flex items-center justify-center p-2 text-center bg-black/40 transition-colors ${selectedCategories.includes(cat.name) ? 'bg-orange-600/80' : ''}`}>
+                    <span className="text-white text-sm md:text-2xl font-black drop-shadow-2xl">{cat.name}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <button 
@@ -1035,17 +1214,17 @@ const App: React.FC = () => {
       <div className="h-[100dvh] w-full flex flex-col p-1 md:p-4 overflow-hidden bg-slate-50/50 relative">
         <NotificationToast message={notification} />
 
-        {/* Unified Header Section - Responsive sizing */}
+        {/* Unified Header Section - Responsive sizing with Specific Tablet (md) vs Desktop (lg) scaling */}
         <header className="flex-none flex items-start justify-between gap-1 md:gap-4 mb-2 md:mb-3 z-10 px-1 md:px-4 w-full max-w-full">
           
-          {/* Team 1 Score */}
-          <div className={`px-2 py-2 md:px-4 md:py-4 rounded-xl md:rounded-2xl shadow-md border-b-[3px] transition-all min-w-[70px] md:min-w-[140px] flex flex-col items-center shrink-0 ${gameState.currentTurn === 0 ? 'bg-orange-600 text-white border-orange-800 scale-105' : 'bg-white text-slate-400 border-slate-200'}`}>
-             <p className="text-[9px] md:text-xs font-bold opacity-80 mb-0.5 truncate max-w-[60px] md:max-w-full text-center">فريق {gameState.teams[0].name}</p>
-             <p className="text-xl md:text-4xl font-black leading-none mb-1">{gameState.teams[0].score}</p>
+          {/* Team 1 Score - Scaled down ~20% for tablets (md) vs full size for desktop (lg) */}
+          <div className={`px-2 py-2 md:px-3 md:py-3 lg:px-4 lg:py-4 rounded-xl md:rounded-2xl shadow-md border-b-[3px] transition-all min-w-[70px] md:min-w-[110px] lg:min-w-[140px] flex flex-col items-center shrink-0 ${gameState.currentTurn === 0 ? 'bg-orange-600 text-white border-orange-800 scale-105' : 'bg-white text-slate-400 border-slate-200'}`}>
+             <p className="text-[9px] md:text-[10px] lg:text-xs font-bold opacity-80 mb-0.5 truncate max-w-[60px] md:max-w-[100px] lg:max-w-full text-center">فريق {gameState.teams[0].name}</p>
+             <p className="text-xl md:text-3xl lg:text-4xl font-black leading-none mb-1">{gameState.teams[0].score}</p>
              {/* Manual Controls */}
              <div className="flex gap-1 md:gap-3">
-                <button onClick={() => adjustScore(0, 100)} className="hover:text-orange-200 hover:scale-125 transition-transform text-[8px] md:text-xs font-bold p-1">▲</button>
-                <button onClick={() => adjustScore(0, -100)} className="hover:text-orange-200 hover:scale-125 transition-transform text-[8px] md:text-xs font-bold p-1">▼</button>
+                <button onClick={() => adjustScore(0, 100)} className="hover:text-orange-200 hover:scale-125 transition-transform text-[8px] md:text-[10px] lg:text-xs font-bold p-1">▲</button>
+                <button onClick={() => adjustScore(0, -100)} className="hover:text-orange-200 hover:scale-125 transition-transform text-[8px] md:text-[10px] lg:text-xs font-bold p-1">▼</button>
              </div>
           </div>
 
@@ -1123,14 +1302,14 @@ const App: React.FC = () => {
                </div>
           </div>
 
-          {/* Team 2 Score */}
-          <div className={`px-2 py-2 md:px-4 md:py-4 rounded-xl md:rounded-2xl shadow-md border-b-[3px] transition-all min-w-[70px] md:min-w-[140px] flex flex-col items-center shrink-0 ${gameState.currentTurn === 1 ? 'bg-orange-600 text-white border-orange-800 scale-105' : 'bg-white text-slate-400 border-slate-200'}`}>
-             <p className="text-[9px] md:text-xs font-bold opacity-80 mb-0.5 truncate max-w-[60px] md:max-w-full text-center">فريق {gameState.teams[1].name}</p>
-             <p className="text-xl md:text-4xl font-black leading-none mb-1">{gameState.teams[1].score}</p>
+          {/* Team 2 Score - Scaled down ~20% for tablets (md) vs full size for desktop (lg) */}
+          <div className={`px-2 py-2 md:px-3 md:py-3 lg:px-4 lg:py-4 rounded-xl md:rounded-2xl shadow-md border-b-[3px] transition-all min-w-[70px] md:min-w-[110px] lg:min-w-[140px] flex flex-col items-center shrink-0 ${gameState.currentTurn === 1 ? 'bg-orange-600 text-white border-orange-800 scale-105' : 'bg-white text-slate-400 border-slate-200'}`}>
+             <p className="text-[9px] md:text-[10px] lg:text-xs font-bold opacity-80 mb-0.5 truncate max-w-[60px] md:max-w-[100px] lg:max-w-full text-center">فريق {gameState.teams[1].name}</p>
+             <p className="text-xl md:text-3xl lg:text-4xl font-black leading-none mb-1">{gameState.teams[1].score}</p>
              {/* Manual Controls */}
              <div className="flex gap-1 md:gap-3">
-                <button onClick={() => adjustScore(1, 100)} className="hover:text-orange-200 hover:scale-125 transition-transform text-[8px] md:text-xs font-bold p-1">▲</button>
-                <button onClick={() => adjustScore(1, -100)} className="hover:text-orange-200 hover:scale-125 transition-transform text-[8px] md:text-xs font-bold p-1">▼</button>
+                <button onClick={() => adjustScore(1, 100)} className="hover:text-orange-200 hover:scale-125 transition-transform text-[8px] md:text-[10px] lg:text-xs font-bold p-1">▲</button>
+                <button onClick={() => adjustScore(1, -100)} className="hover:text-orange-200 hover:scale-125 transition-transform text-[8px] md:text-[10px] lg:text-xs font-bold p-1">▼</button>
              </div>
           </div>
         </header>

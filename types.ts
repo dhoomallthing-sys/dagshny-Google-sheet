@@ -1,4 +1,5 @@
 
+
 export type Points = 200 | 400 | 600;
 
 export interface Question {
@@ -28,7 +29,7 @@ export interface Team {
 }
 
 export interface Subscription {
-  tier: 'plus' | 'pro';
+  tier: 'free' | 'plus' | 'pro';
   activationCode: string;
   date: string;
 }

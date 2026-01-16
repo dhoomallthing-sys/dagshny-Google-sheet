@@ -1,5 +1,5 @@
 
-import { Category, Team, Subscription } from "../types";
+import { Category, Team, Subscription, GameState } from "../types";
 
 export interface GameHistoryItem {
   id: string;
@@ -12,6 +12,7 @@ export interface GameHistoryItem {
 const HISTORY_KEY = 'sinjim_game_history';
 const USED_QUESTIONS_KEY = 'sinjim_used_questions';
 const SUBSCRIPTION_KEY = 'sinjim_subscription';
+const CURRENT_GAME_KEY = 'sinjim_current_game_state';
 
 export const getGameHistory = (): GameHistoryItem[] => {
   try {
@@ -82,6 +83,30 @@ export const removeSubscription = () => {
 export const resetAllProgress = () => {
   localStorage.removeItem(HISTORY_KEY);
   localStorage.removeItem(USED_QUESTIONS_KEY);
+  localStorage.removeItem(CURRENT_GAME_KEY);
   // We generally do NOT remove subscription on reset progress, 
   // unless explicitly requested to "Logout"
+};
+
+// --- Game Persistence Functions ---
+
+export const saveCurrentGameState = (state: GameState) => {
+  try {
+    localStorage.setItem(CURRENT_GAME_KEY, JSON.stringify(state));
+  } catch (e) {
+    console.error("Error saving current game state", e);
+  }
+};
+
+export const loadCurrentGameState = (): GameState | null => {
+  try {
+    const data = localStorage.getItem(CURRENT_GAME_KEY);
+    return data ? JSON.parse(data) : null;
+  } catch (e) {
+    return null;
+  }
+};
+
+export const clearCurrentGameState = () => {
+  localStorage.removeItem(CURRENT_GAME_KEY);
 };

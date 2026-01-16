@@ -59,7 +59,7 @@ const QuestionModal: React.FC<QuestionModalProps> = ({
           className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4 cursor-zoom-out animate-in fade-in duration-200"
           onClick={() => setIsImageZoomed(false)}
         >
-          <div className="relative max-w-full max-h-full">
+          <div className="relative max-w-full max-h-full flex items-center justify-center">
             <button 
               className="absolute -top-12 right-0 text-white text-4xl font-bold hover:text-orange-500"
               onClick={() => setIsImageZoomed(false)}
@@ -163,12 +163,12 @@ const QuestionModal: React.FC<QuestionModalProps> = ({
             {currentImage && (
               <div 
                 onClick={() => setIsImageZoomed(true)}
-                className="relative rounded-xl overflow-hidden shadow-2xl border-4 border-slate-700 transition-all duration-300 cursor-zoom-in hover:scale-[1.02] hover:border-orange-500 max-h-[25vh] md:max-h-[32vh]"
+                className="relative rounded-xl overflow-hidden shadow-2xl border-4 border-slate-700 transition-all duration-300 cursor-zoom-in hover:scale-[1.02] hover:border-orange-500 inline-block"
               >
                 <img 
                   src={currentImage} 
                   alt="Visual Clue" 
-                  className="w-full h-full object-contain bg-black/50" 
+                  className="max-w-full max-h-[25vh] md:max-h-[32vh] object-contain h-auto w-auto" 
                 />
                 <div className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded-md backdrop-blur-sm pointer-events-none">
                   🔍 اضغط للتكبير
@@ -213,12 +213,12 @@ const QuestionModal: React.FC<QuestionModalProps> = ({
             {currentImage && (
               <div 
                 onClick={() => setIsImageZoomed(true)}
-                className="relative rounded-xl overflow-hidden shadow-lg border-2 border-slate-600 transition-all duration-300 cursor-zoom-in hover:scale-[1.02] mb-4 max-h-[20vh] md:max-h-[25vh]"
+                className="relative rounded-xl overflow-hidden shadow-lg border-2 border-slate-600 transition-all duration-300 cursor-zoom-in hover:scale-[1.02] mb-4 inline-block"
               >
                 <img 
                   src={currentImage} 
                   alt="Answer Visual" 
-                  className="w-full h-full object-contain bg-black/50" 
+                  className="max-w-full max-h-[20vh] md:max-h-[25vh] object-contain h-auto w-auto" 
                 />
               </div>
             )}
