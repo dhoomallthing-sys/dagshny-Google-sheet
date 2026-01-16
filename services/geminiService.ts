@@ -184,7 +184,8 @@ export const getCategoryGameCount = (categoryName: string): number => {
   const questions = getQuestionsByCategory(categoryName);
   if (!questions || questions.length === 0) return 0;
   
-  const usedIds = getUsedQuestionIds();
+  // Pass current tier to getUsedQuestionIds to ensure data isolation
+  const usedIds = getUsedQuestionIds(ACTIVE_TIER_MODE);
   const isUsed = (idx: number) => usedIds.includes(`${categoryName}-${idx}`);
 
   let easyCount = 0;
@@ -211,7 +212,8 @@ export const generateQuestionsForCategory = async (categoryName: string): Promis
   const categoryQuestions = getQuestionsByCategory(categoryName);
   if (categoryQuestions.length === 0) return [];
 
-  const usedIds = getUsedQuestionIds();
+  // Pass current tier to getUsedQuestionIds to ensure data isolation
+  const usedIds = getUsedQuestionIds(ACTIVE_TIER_MODE);
 
   const indexedQuestions = categoryQuestions.map((item, index) => ({
     item,

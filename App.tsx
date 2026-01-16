@@ -13,6 +13,8 @@ import {
   getGameHistory, 
   saveGameToHistory, 
   markQuestionsAsUsed, 
+  unmarkQuestionsAsUsed, 
+  deleteGameFromHistory, 
   resetAllProgress, 
   GameHistoryItem,
   getSubscription,
@@ -165,6 +167,20 @@ const StatusBadge = ({ tier }: { tier: 'free' | 'plus' | 'pro' }) => {
   );
 };
 
+// Helper to render Tier Badge in History
+const HistoryTierBadge = ({ tier }: { tier?: 'free' | 'plus' | 'pro' }) => {
+  if (!tier || tier === 'free') {
+    return <span className="bg-slate-500/90 text-white text-[10px] px-2 py-1 rounded-bl-xl font-bold shadow-sm">مجاني 🆓</span>;
+  }
+  if (tier === 'plus') {
+    return <span className="bg-blue-600/90 text-white text-[10px] px-2 py-1 rounded-bl-xl font-bold shadow-sm">بلس 💎</span>;
+  }
+  if (tier === 'pro') {
+    return <span className="bg-yellow-500/90 text-white text-[10px] px-2 py-1 rounded-bl-xl font-bold shadow-sm">برو 👑</span>;
+  }
+  return null;
+};
+
 const App: React.FC = () => {
   const [isMobileMode, setIsMobileMode] = useState(false);
   const [showRules, setShowRules] = useState(false);
@@ -253,13 +269,21 @@ const App: React.FC = () => {
         : gameState.teams[1].score > gameState.teams[0].score 
           ? 1 
           : -1;
+      
+      // Extract used question IDs from the current game state
+      const usedIds = gameState.categories.flatMap(c => 
+        c.questions.filter(q => q.isUsed).map(q => q.id)
+      );
 
-      // 1. Save Game History
+      // 1. Save Game History WITH TIER & Used IDs
+      // CRITICAL: Use the tier locked in gameState to ensure persistence of the original session type
       saveGameToHistory({
         date: new Date().toISOString(),
         teams: gameState.teams,
         categories: gameState.categories.map(c => c.name),
-        winnerIndex
+        winnerIndex,
+        tier: gameState.tier || activeTierMode, // Fallback to active if missing (should not happen with new logic)
+        usedQuestionIds: usedIds
       });
 
       // 2. Clear the active saved game because it's finished
@@ -385,14 +409,20 @@ const App: React.FC = () => {
       // Extract all Question IDs from the generated categories
       const allQuestionIds = categories.flatMap(c => c.questions.map(q => q.id));
       
-      // Mark them as used immediately in LocalStorage
+      // Mark them as used immediately in LocalStorage, SPECIFIC TO THE ACTIVE TIER
       // This ensures that even if the user refreshes or exits, these questions 
-      // are considered "spent" and filtered out in future selections.
+      // are considered "spent" and filtered out in future selections for this tier.
       if (allQuestionIds.length > 0) {
-        markQuestionsAsUsed(allQuestionIds);
+        markQuestionsAsUsed(allQuestionIds, activeTierMode);
       }
 
-      const newGameState: GameState = { ...gameState, categories, gameStatus: 'playing' };
+      // CRITICAL: Capture and lock the current tier into the session state
+      const newGameState: GameState = { 
+        ...gameState, 
+        categories, 
+        gameStatus: 'playing',
+        tier: activeTierMode // Locking the package type here
+      };
       setGameState(newGameState);
       
       // Save initial state for "Resume" feature
@@ -416,6 +446,78 @@ const App: React.FC = () => {
       setHasSavedGame(false);
       setActiveGameDetails(null);
     }
+  };
+
+  // --- DELETE & RECYCLE LOGIC ---
+  
+  const handleDeleteHistoryGame = (e: React.MouseEvent, id: string, tier: 'free' | 'plus' | 'pro' | undefined, usedQuestionIds: string[]) => {
+    // 2. Correct Event Binding & Bubble Prevention
+    e.stopPropagation();
+    e.preventDefault(); 
+
+    // 5. Verification (Debug Log)
+    console.log(`[Delete Operation] Initiated for session ID: ${id}`);
+
+    if (!window.confirm("هل أنت متأكد من حذف هذه اللعبة؟ سيتم استرجاع الأسئلة لتظهر لك مجدداً.")) {
+       console.log(`[Delete Operation] Cancelled by user.`);
+       return;
+    }
+
+    // 3. Deletion Logic - Step B (Recycling)
+    if (tier && usedQuestionIds && usedQuestionIds.length > 0) {
+      console.log(`[Delete Operation] Recycling ${usedQuestionIds.length} questions for tier: ${tier}`);
+      unmarkQuestionsAsUsed(usedQuestionIds, tier);
+    } else {
+      console.log(`[Delete Operation] No questions to recycle or missing tier info.`);
+    }
+
+    // 3. Deletion Logic - Step A & C (Removal)
+    deleteGameFromHistory(id);
+    console.log(`[Delete Operation] Session removed from storage.`);
+    
+    // 4. Instant UI Refresh
+    setHistory(prev => {
+        const updated = prev.filter(g => g.id !== id);
+        console.log(`[Delete Operation] UI updated. Remaining games: ${updated.length}`);
+        return updated;
+    });
+    setRefreshKey(prev => prev + 1); // Refresh Home counts
+    showNotification("تم حذف اللعبة واسترجاع الأسئلة! ♻️");
+  };
+
+  const handleDeleteActiveGame = (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+
+    if (!window.confirm("هل أنت متأكد من حذف الجلسة الحالية؟ سيتم استرجاع الأسئلة لتظهر لك مجدداً.")) return;
+    
+    // Attempt to get active game details from state OR from local storage if state is empty (e.g. on landing page)
+    let gameData = activeGameDetails;
+    if (!gameData) {
+      gameData = loadCurrentGameState();
+    }
+    
+    if (gameData) {
+       // 1. Extract IDs from active game
+       const usedIds = gameData.categories.flatMap(c => c.questions.map(q => q.id));
+       
+       // 2. Recycle
+       // Use the tier stored in the active game details if available, otherwise fallback to current mode
+       const tierToRecycle = gameData.tier || activeTierMode;
+       
+       if (usedIds.length > 0) {
+         unmarkQuestionsAsUsed(usedIds, tierToRecycle);
+       }
+    }
+
+    // 3. Clear State & Storage
+    clearCurrentGameState();
+    setHasSavedGame(false);
+    setActiveGameDetails(null);
+    setRefreshKey(prev => prev + 1);
+    showNotification("تم حذف الجلسة واسترجاع الأسئلة! ♻️");
   };
 
   const handlePlayAgain = () => {
@@ -608,7 +710,7 @@ const App: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 items-stretch">
             
-            {/* Free Tier - Cleaned Description */}
+            {/* Free Tier */}
             <button 
               onClick={() => handleTierSelection('free')}
               disabled={!questionsLoaded}
@@ -626,7 +728,7 @@ const App: React.FC = () => {
               )}
             </button>
 
-            {/* Plus Tier - Cleaned Description */}
+            {/* Plus Tier */}
             <button 
               onClick={() => handleTierSelection('plus')}
               disabled={!questionsLoaded}
@@ -638,7 +740,6 @@ const App: React.FC = () => {
               </div>
               <h3 className="text-2xl font-black text-blue-700 mb-2">باقة البلس</h3>
 
-              {/* Activated Badge */}
               {storedSubscription?.tier === 'plus' && (
                 <div className="bg-green-500 text-white px-4 py-1 rounded-full text-sm font-bold animate-pulse shadow-md mt-auto">
                    ✅ مفعلة
@@ -652,7 +753,7 @@ const App: React.FC = () => {
               )}
             </button>
 
-            {/* Pro Tier - Cleaned Description */}
+            {/* Pro Tier */}
             <button 
               onClick={() => handleTierSelection('pro')}
               disabled={!questionsLoaded}
@@ -664,7 +765,6 @@ const App: React.FC = () => {
               </div>
               <h3 className="text-3xl font-black text-yellow-700 mb-2">باقة البرو</h3>
 
-              {/* Activated Badge */}
               {storedSubscription?.tier === 'pro' && (
                 <div className="bg-green-600 text-white px-6 py-1.5 rounded-full text-lg font-bold animate-pulse shadow-lg z-20 mt-auto">
                    ✅ مفعلة
@@ -687,7 +787,6 @@ const App: React.FC = () => {
   // --- ACTIVATION SCREEN ---
   if (gameState.gameStatus === 'activation') {
     const isPro = pendingTier === 'pro';
-    const accentColor = isPro ? 'yellow' : 'blue';
     const borderColor = isPro ? 'border-yellow-500' : 'border-blue-500';
     const textColor = isPro ? 'text-yellow-600' : 'text-blue-600';
     const bgGradient = isPro ? 'from-yellow-50 to-orange-50' : 'from-blue-50 to-indigo-50';
@@ -695,7 +794,6 @@ const App: React.FC = () => {
     return (
       <div className={`h-[100dvh] w-full flex flex-col items-center justify-center p-6 bg-gradient-to-br ${bgGradient} relative overflow-hidden`}>
         
-        {/* Back Button */}
         <button 
           onClick={() => setGameState(prev => ({ ...prev, gameStatus: 'tierSelection' }))}
           className="absolute top-4 right-4 z-50 text-slate-500 hover:text-slate-800 bg-white px-4 py-2 rounded-full shadow-md font-bold transition-all"
@@ -749,11 +847,12 @@ const App: React.FC = () => {
     );
   }
 
+  // --- MAIN HOME SCREEN (LANDING) ---
   if (gameState.gameStatus === 'landing') {
     return (
-      <div className="h-[100dvh] w-full flex flex-col items-center justify-center p-4 bg-white relative overflow-hidden">
+      <div className="h-[100dvh] w-full bg-white relative overflow-hidden flex flex-col justify-evenly">
         
-        {/* Status Badge on Landing Page */}
+        {/* Status Badge */}
         <StatusBadge tier={activeTierMode} />
 
         {/* Top Bar with Cast Button */}
@@ -761,7 +860,7 @@ const App: React.FC = () => {
            <CastButton />
         </div>
         
-        {/* Change Tier Button (Top Right) */}
+        {/* Change Tier Button */}
         <button 
            onClick={() => setGameState(prev => ({ ...prev, gameStatus: 'tierSelection' }))}
            className="absolute top-4 right-4 z-50 text-slate-400 hover:text-orange-500 font-bold text-xs md:text-sm bg-white/80 backdrop-blur px-3 py-1.5 rounded-full border border-slate-200 hover:border-orange-200 transition-all shadow-sm"
@@ -773,71 +872,89 @@ const App: React.FC = () => {
         <div className="absolute top-0 right-0 w-64 h-64 md:w-96 md:h-96 bg-orange-100 rounded-full -mr-32 -mt-32 opacity-50 blur-3xl animate-pulse pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 w-64 h-64 md:w-96 md:h-96 bg-orange-100 rounded-full -ml-32 -mb-32 opacity-50 blur-3xl animate-pulse pointer-events-none"></div>
         
-        {/* Content container */}
-        <div className="relative z-10 text-center animate-in zoom-in duration-700 flex flex-col items-center max-h-full w-full">
-          <div className="mb-4 md:mb-6 inline-block p-4 md:p-6 rounded-[2rem] md:rounded-[3rem] bg-orange-50 border-4 border-orange-100 shadow-xl shrink-0 mt-20 md:mt-24">
-             <span className="text-6xl md:text-9xl">🤔</span>
-          </div>
-          {/* Scaled down title by 10% (scale-90) - Added mt-20 to prevent overlap */}
-          <h1 className="text-6xl md:text-8xl lg:text-[10rem] font-black text-orange-600 leading-none tracking-tighter mb-4 md:mb-6 drop-shadow-2xl transform scale-90">
-            داقشني
-          </h1>
+        {/* Content Container - Flex Col evenly spaced */}
+        <div className="relative z-10 flex flex-col items-center justify-evenly h-full w-full max-w-4xl mx-auto px-4 animate-in zoom-in duration-700">
           
-          {/* Action Buttons Container */}
-          <div className="flex flex-col gap-3 md:gap-4 mb-6 md:mb-10 shrink-0 w-full max-w-sm md:max-w-lg px-4">
+          {/* Top Section: Icon & Title */}
+          <div className="flex flex-col items-center justify-center">
+              <div className="inline-block p-4 md:p-6 rounded-[2rem] bg-orange-50 border-4 border-orange-100 shadow-xl mb-4 md:mb-6">
+                <span className="text-6xl md:text-8xl lg:text-9xl">🤔</span>
+              </div>
+              
+              <h1 className="text-5xl md:text-7xl lg:text-9xl font-black text-orange-600 leading-none tracking-tighter drop-shadow-2xl text-center">
+                داقشني
+              </h1>
+          </div>
+
+          {/* Middle Section: Main Action Button */}
+          <div className="w-full flex justify-center">
+             <button 
+               onClick={() => setGameState(prev => ({ ...prev, gameStatus: 'setup' }))}
+               className="group relative w-full max-w-sm md:max-w-md py-6 md:py-8 orange-gradient text-white rounded-3xl md:rounded-[2.5rem] text-3xl md:text-5xl font-black shadow-[0_20px_50px_rgba(249,115,22,0.4)] hover:scale-105 hover:shadow-orange-500/60 transition-all duration-300 cursor-pointer z-20"
+             >
+               <span className="relative z-10">ابدأ لعبة جديدة</span>
+               <div className="absolute inset-0 rounded-3xl md:rounded-[2.5rem] bg-white opacity-0 group-hover:opacity-20 transition-opacity"></div>
+             </button>
+          </div>
+          
+          {/* Bottom Section: Secondary Buttons & Resume */}
+          <div className="flex flex-col gap-3 w-full max-w-sm md:max-w-md">
             
-            {/* Top Row: Two buttons */}
-            <div className="flex gap-2 md:gap-4 w-full">
+            {/* Action Row */}
+            <div className="flex gap-3 w-full">
               <button 
                 onClick={() => setIsMobileMode(!isMobileMode)}
-                className="flex-1 px-2 py-3 md:px-6 md:py-3 rounded-2xl bg-slate-100 border-2 border-slate-200 text-slate-600 font-bold hover:bg-slate-200 transition-colors flex items-center justify-center gap-1 md:gap-2 cursor-pointer active:scale-95 z-20 text-xs md:text-base whitespace-nowrap"
+                className="flex-1 py-4 rounded-2xl bg-slate-100 border-2 border-slate-200 text-slate-600 font-bold hover:bg-slate-200 transition-colors flex items-center justify-center gap-2 active:scale-95 text-sm md:text-lg"
               >
                 {isMobileMode ? '📱 وضع الجوال' : '💻 وضع الكمبيوتر'}
               </button>
 
               <button 
                 onClick={() => setShowRules(true)}
-                className="flex-1 px-2 py-3 md:px-6 md:py-3 rounded-2xl bg-orange-100 border-2 border-orange-200 text-orange-600 font-bold hover:bg-orange-200 transition-colors flex items-center justify-center gap-1 md:gap-2 cursor-pointer active:scale-95 z-20 text-xs md:text-base whitespace-nowrap"
+                className="flex-1 py-4 rounded-2xl bg-orange-100 border-2 border-orange-200 text-orange-600 font-bold hover:bg-orange-200 transition-colors flex items-center justify-center gap-2 active:scale-95 text-sm md:text-lg"
               >
                 📜 كيف تلعب؟
               </button>
             </div>
 
-            {/* Bottom Row: Full width History button */}
+            {/* History Button */}
             <button 
               onClick={() => setShowHistory(true)}
-              className="w-full px-4 py-3 md:px-6 md:py-3 rounded-2xl bg-slate-800 border-2 border-slate-700 text-slate-300 font-bold hover:bg-slate-700 hover:text-white transition-colors flex items-center justify-center gap-2 cursor-pointer active:scale-95 z-20 text-xs md:text-base shadow-md"
+              className="w-full py-4 rounded-2xl bg-slate-800 border-2 border-slate-700 text-slate-300 font-bold hover:bg-slate-700 hover:text-white transition-colors flex items-center justify-center gap-2 active:scale-95 text-sm md:text-lg shadow-md"
             >
               📂 ألعابي السابقة
             </button>
+
+            {/* Resume Button (Conditional) - with Delete Option */}
+            {hasSavedGame && (
+               <div className="animate-in slide-in-from-bottom-5 fade-in w-full pt-2 flex flex-col items-center">
+                  <div className="flex items-center gap-2 mb-2 justify-center opacity-60 w-full">
+                    <div className="h-px bg-slate-300 flex-1"></div>
+                    <span className="text-slate-400 text-xs font-bold">جلسة نشطة</span>
+                    <div className="h-px bg-slate-300 flex-1"></div>
+                  </div>
+                  <div className="flex w-full gap-2">
+                    <button 
+                      onClick={handleResumeGame}
+                      className="flex-[3] relative py-4 bg-white border-2 border-green-500 text-green-600 rounded-2xl text-xl font-black shadow-lg hover:shadow-green-500/20 hover:scale-[1.02] transition-all flex items-center justify-center gap-2 group"
+                    >
+                      <span>▶️</span>
+                      <span>إكمال اللعبة</span>
+                      <span className="absolute top-0 left-0 w-2.5 h-2.5 bg-green-500 rounded-full animate-ping group-hover:animate-none"></span>
+                    </button>
+                    
+                    {/* New Delete Button on Landing Screen */}
+                    <button 
+                       onClick={handleDeleteActiveGame}
+                       className="flex-1 py-4 bg-red-50 border-2 border-red-200 text-red-500 rounded-2xl text-2xl font-black shadow-lg hover:bg-red-100 hover:border-red-300 transition-all flex items-center justify-center"
+                       title="حذف الجلسة الحالية"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+               </div>
+            )}
           </div>
-
-          <button 
-            onClick={() => setGameState(prev => ({ ...prev, gameStatus: 'setup' }))}
-            className="group relative px-12 py-5 md:px-20 md:py-8 orange-gradient text-white rounded-full text-2xl md:text-4xl font-black shadow-[0_20px_50px_rgba(249,115,22,0.4)] hover:scale-110 hover:shadow-orange-500/60 transition-all duration-300 cursor-pointer z-20"
-          >
-            <span className="relative z-10">ابدأ لعبة جديدة</span>
-            <div className="absolute inset-0 rounded-full bg-white opacity-0 group-hover:opacity-20 transition-opacity"></div>
-          </button>
-
-          {/* CONTINUE GAME SECTION */}
-          {hasSavedGame && (
-             <div className="mt-8 animate-in slide-in-from-bottom-5 fade-in w-full max-w-sm md:max-w-lg px-4">
-                <div className="flex items-center gap-3 mb-2 justify-center">
-                  <div className="h-px bg-slate-200 flex-1"></div>
-                  <span className="text-slate-400 text-sm font-bold">ألعابك الحالية</span>
-                  <div className="h-px bg-slate-200 flex-1"></div>
-                </div>
-                <button 
-                  onClick={handleResumeGame}
-                  className="w-full relative px-8 py-4 bg-white border-2 border-green-500 text-green-600 rounded-2xl text-xl font-black shadow-lg hover:shadow-green-500/20 hover:scale-105 transition-all flex items-center justify-center gap-2"
-                >
-                  <span>▶️</span>
-                  <span>إكمال اللعبة</span>
-                  <span className="absolute top-0 left-0 w-3 h-3 bg-green-500 rounded-full animate-ping"></span>
-                </button>
-             </div>
-          )}
         </div>
 
         {/* History Modal - Shows both unfinished active game AND finished history */}
@@ -855,13 +972,26 @@ const App: React.FC = () => {
                {/* 1. Unfinished / Active Game Card (If Exists) */}
                {activeGameDetails && (
                  <div className="bg-slate-800 rounded-2xl p-4 border-2 border-green-500/50 flex flex-col gap-3 mb-6 relative overflow-hidden animate-in slide-in-from-left-4 shadow-lg shadow-green-900/20">
-                   <div className="absolute top-0 right-0 bg-green-600 text-white px-4 py-1 rounded-bl-xl text-xs font-bold shadow-md z-10">
-                      جاري اللعب ⏳
+                   
+                   {/* Active Game Badge & Tier Badge */}
+                   <div className="absolute top-0 right-0 z-10 flex">
+                     {/* Use the TIER LOCKED in activeGameDetails, NOT global state */}
+                     <HistoryTierBadge tier={activeGameDetails.tier} />
+                     <div className="bg-green-600 text-white px-3 py-1 rounded-bl-xl text-[10px] font-bold shadow-md ml-[-8px]">
+                        جاري اللعب ⏳
+                     </div>
                    </div>
 
-                   <div className="flex justify-between items-start border-b border-slate-700 pb-2 mt-4">
+                   <div className="flex justify-between items-start border-b border-slate-700 pb-2 mt-6">
                        <span className="text-xs text-slate-400 font-mono">جلسة حالية (غير منتهية)</span>
-                       <span className="text-2xl animate-pulse">▶️</span>
+                       
+                       {/* Delete Button for Active Game */}
+                       <button 
+                          onClick={handleDeleteActiveGame}
+                          className="text-red-400 hover:text-red-200 text-xs border border-red-900/50 bg-red-900/20 px-2 py-1 rounded hover:bg-red-900/50 transition-colors"
+                       >
+                         🗑️ حذف الجلسة
+                       </button>
                    </div>
 
                    <div className="flex justify-around items-center bg-slate-900/50 p-3 rounded-xl">
@@ -876,7 +1006,6 @@ const App: React.FC = () => {
                          </div>
                    </div>
 
-                   {/* Category Thumbnails for Active Game */}
                    <div className="flex gap-2 flex-wrap justify-center mt-1">
                      {activeGameDetails.categories.map((cat, cIdx) => (
                          <div key={cIdx} className="relative group cursor-help">
@@ -913,10 +1042,26 @@ const App: React.FC = () => {
                ) : (
                  <div className="space-y-4">
                    {history.map((game, idx) => (
-                     <div key={game.id} className="bg-slate-800 rounded-2xl p-4 border border-slate-700 flex flex-col gap-3">
-                        <div className="flex justify-between items-start border-b border-slate-700 pb-2">
+                     <div key={game.id} className="bg-slate-800 rounded-2xl p-4 border border-slate-700 flex flex-col gap-3 relative overflow-hidden group/card">
+                        
+                        {/* Package Badge - PERSISTED VALUE */}
+                        <div className="absolute top-0 right-0 z-10">
+                          <HistoryTierBadge tier={game.tier} />
+                        </div>
+
+                        <div className="flex justify-between items-start border-b border-slate-700 pb-2 mt-4">
                            <span className="text-xs text-slate-400 font-mono">{new Date(game.date).toLocaleDateString('ar-SA')}</span>
-                           <span className="text-2xl">{game.winnerIndex === -1 ? '🤝' : '🏆'}</span>
+                           <div className="flex items-center gap-3">
+                              <span className="text-2xl">{game.winnerIndex === -1 ? '🤝' : '🏆'}</span>
+                              {/* Delete Button */}
+                              <button 
+                                onClick={(e) => handleDeleteHistoryGame(e, game.id, game.tier, game.usedQuestionIds)}
+                                className="text-red-400 hover:text-red-200 p-2 rounded-lg hover:bg-red-900/30 transition-colors z-20"
+                                title="حذف واسترجاع الأسئلة"
+                              >
+                                <span className="text-xl">🗑️</span>
+                              </button>
+                           </div>
                         </div>
                         
                         <div className="flex justify-around items-center bg-slate-900/50 p-3 rounded-xl">
@@ -931,7 +1076,6 @@ const App: React.FC = () => {
                              </div>
                         </div>
 
-                        {/* Category Thumbnails */}
                         <div className="flex gap-2 flex-wrap justify-center mt-1">
                           {game.categories.map((catName, cIdx) => {
                             const meta = CATEGORY_META.find(m => m.name === catName);
@@ -944,7 +1088,6 @@ const App: React.FC = () => {
                                     <div className="w-full h-full flex items-center justify-center text-[10px] text-slate-500">?</div>
                                   )}
                                 </div>
-                                {/* Tooltip */}
                                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-black/90 text-white text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10 border border-slate-700">
                                   {catName}
                                 </div>
@@ -1027,6 +1170,8 @@ const App: React.FC = () => {
     );
   }
 
+  // --- REMAINING RENDERS ---
+  
   if (gameState.gameStatus === 'setup') {
     // 2. Sort Logic: Categories with games > 0 first.
     const sortedCategories = [...CATEGORY_META].map(cat => ({

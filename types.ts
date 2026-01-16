@@ -42,6 +42,7 @@ export interface GameState {
   activePowerUps: (keyof PowerUpState)[]; // Supports multiple active powerups
   powerUps: [PowerUpState, PowerUpState];
   gameStatus: 'tierSelection' | 'activation' | 'landing' | 'setup' | 'teams' | 'loading' | 'playing' | 'finished';
+  tier?: 'free' | 'plus' | 'pro'; // Captured at game start to lock package type
 }
 
 export interface PowerUpState {
