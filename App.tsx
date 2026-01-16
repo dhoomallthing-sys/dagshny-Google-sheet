@@ -238,28 +238,6 @@ const App: React.FC = () => {
       setActiveTierMode(sub.tier);
       // Skip tier selection and activation, go straight to Landing
       setGameState(prev => ({ ...prev, gameStatus: 'landing' }));
-
-      // --- INTEGRITY CHECK & QUOTA SYNC ON REFRESH ---
-      // Fetch latest quota immediately to ensure data integrity
-      if (sub.tier !== 'free') {
-        getRemainingGames(sub.activationCode).then(quota => {
-          if (quota !== null) {
-            // Check if quota is exhausted from an external session
-            if (quota <= 0) {
-              const freeSub: Subscription = { tier: 'free', activationCode: 'FREE', date: new Date().toISOString() };
-              saveSubscription(freeSub);
-              setStoredSubscription(freeSub);
-              setGameTier('free');
-              setActiveTierMode('free');
-              alert("⚠️ انتهى رصيد الألعاب الخاص بك! تم تحديث حالتك إلى النسخة المجانية.");
-            } else {
-              // Valid quota - logic continues as normal
-              console.log(`Verified Quota on Load: ${quota}`);
-            }
-          }
-        });
-      }
-
     } else {
        setGameTier('free');
        setActiveTierMode('free');
@@ -477,38 +455,34 @@ const App: React.FC = () => {
     e.stopPropagation();
     e.preventDefault(); 
 
+    // 5. Verification (Debug Log)
     console.log(`[Delete Operation] Initiated for session ID: ${id}`);
 
-    // 1. Fix the Confirmation Logic (Using if-else explicitly)
-    if (window.confirm("هل أنت متأكد من حذف هذه اللعبة؟ سيتم استرجاع الأسئلة لتظهر لك مجدداً.")) {
-      // 2. Ensure Execution of Deletion
-      
-      // Step B: Recycle Questions
-      if (tier && usedQuestionIds && usedQuestionIds.length > 0) {
-        console.log(`[Delete Operation] Recycling ${usedQuestionIds.length} questions for tier: ${tier}`);
-        unmarkQuestionsAsUsed(usedQuestionIds, tier);
-      } else {
-        console.log(`[Delete Operation] No questions to recycle or missing tier info.`);
-      }
-
-      // Step A & C: Remove from Storage
-      deleteGameFromHistory(id);
-      
-      // 4. Debugging Logs
-      console.log('[Delete Operation] Successfully deleted ID: ' + id);
-
-      // 3. Force UI Update
-      setHistory(prev => {
-         const updated = prev.filter(g => g.id !== id);
-         return updated;
-      });
-      setRefreshKey(prev => prev + 1); // Refresh Home counts to reflect recycled questions
-      showNotification("تم حذف اللعبة واسترجاع الأسئلة! ♻️");
-
-    } else {
-       console.log('[Delete Operation] Cancelled by user.');
+    if (!window.confirm("هل أنت متأكد من حذف هذه اللعبة؟ سيتم استرجاع الأسئلة لتظهر لك مجدداً.")) {
+       console.log(`[Delete Operation] Cancelled by user.`);
        return;
     }
+
+    // 3. Deletion Logic - Step B (Recycling)
+    if (tier && usedQuestionIds && usedQuestionIds.length > 0) {
+      console.log(`[Delete Operation] Recycling ${usedQuestionIds.length} questions for tier: ${tier}`);
+      unmarkQuestionsAsUsed(usedQuestionIds, tier);
+    } else {
+      console.log(`[Delete Operation] No questions to recycle or missing tier info.`);
+    }
+
+    // 3. Deletion Logic - Step A & C (Removal)
+    deleteGameFromHistory(id);
+    console.log(`[Delete Operation] Session removed from storage.`);
+    
+    // 4. Instant UI Refresh
+    setHistory(prev => {
+        const updated = prev.filter(g => g.id !== id);
+        console.log(`[Delete Operation] UI updated. Remaining games: ${updated.length}`);
+        return updated;
+    });
+    setRefreshKey(prev => prev + 1); // Refresh Home counts
+    showNotification("تم حذف اللعبة واسترجاع الأسئلة! ♻️");
   };
 
   const handleDeleteActiveGame = (e?: React.MouseEvent) => {
@@ -1244,7 +1218,6 @@ const App: React.FC = () => {
               const isExhausted = gameCount === 0;
               // 3. Logic: Specific tier messaging for 'حنكة' & 'تموينات'
               const isProExclusive = (cat.name === 'حنكة' || cat.name === 'تموينات') && activeTierMode !== 'pro';
-              const isSaudiYoutube = cat.name === 'يوتيوب سعودي';
 
               return (
                 <button
@@ -1276,7 +1249,7 @@ const App: React.FC = () => {
                   
                   {isExhausted && (
                     <div className={`absolute top-2 left-2 text-white text-[8px] md:text-[10px] px-2 py-1 rounded-full font-bold z-20 shadow-lg whitespace-nowrap ${isProExclusive ? 'bg-yellow-600' : 'bg-red-600'}`}>
-                      {isSaudiYoutube ? 'قريبًا 🔜' : (isProExclusive ? 'متوفرة في باقة برو 👑' : 'انتهت الالعاب 🏁')}
+                      {isProExclusive ? 'متوفرة في باقة برو 👑' : 'انتهت الالعاب 🏁'}
                     </div>
                   )}
 
