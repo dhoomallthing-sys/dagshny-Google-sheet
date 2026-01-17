@@ -206,7 +206,7 @@ const QuestionModal: React.FC<QuestionModalProps> = ({
             {/* The Answer Box - Reduced Size */}
             <div className="bg-green-600/20 border-2 border-green-500 p-6 md:p-8 rounded-[2rem] mb-4 backdrop-blur-sm w-full max-w-3xl">
               <p className="text-green-400 text-xs md:text-sm font-bold mb-1 uppercase tracking-widest">الإجابة هي</p>
-              <p className="text-3xl md:text-5xl font-black text-white">{question.answer}</p>
+              <p className="text-2xl md:text-4xl font-black text-white leading-relaxed">{question.answer}</p>
             </div>
 
             {/* Answer Image - Shown BELOW the answer text */}
