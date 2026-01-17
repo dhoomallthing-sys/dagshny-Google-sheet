@@ -184,16 +184,19 @@ export const getCategoryGameCount = (categoryName: string): number => {
   const questions = getQuestionsByCategory(categoryName);
   if (!questions || questions.length === 0) return 0;
   
-  // Pass current tier to getUsedQuestionIds to ensure data isolation
-  const usedIds = getUsedQuestionIds(ACTIVE_TIER_MODE);
-  const isUsed = (idx: number) => usedIds.includes(`${categoryName}-${idx}`);
+  // Use Unified Logic: No tier passed, get all used IDs
+  const usedIds = getUsedQuestionIds();
+  
+  // Check against stable Row ID
+  const isUsed = (rowId: number) => usedIds.includes(`${categoryName}-${rowId}`);
 
   let easyCount = 0;
   let mediumCount = 0;
   let hardCount = 0;
 
-  questions.forEach((q, index) => {
-    if (isUsed(index)) return;
+  questions.forEach((q) => {
+    // Check usage using Row ID (q.id)
+    if (isUsed(q.id)) return;
     const p = getPoints(q);
     if (p === 200) easyCount++;
     else if (p === 400) mediumCount++;
@@ -204,6 +207,16 @@ export const getCategoryGameCount = (categoryName: string): number => {
   return Math.floor(minCount / 2);
 };
 
+// Helper function for Fisher-Yates Shuffle
+const shuffleArray = <T>(array: T[]): T[] => {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
+
 export const generateQuestionsForCategory = async (categoryName: string): Promise<Question[]> => {
   if (GLOBAL_QUESTIONS_CACHE.length === 0) {
       await preloadAllQuestions();
@@ -212,19 +225,22 @@ export const generateQuestionsForCategory = async (categoryName: string): Promis
   const categoryQuestions = getQuestionsByCategory(categoryName);
   if (categoryQuestions.length === 0) return [];
 
-  // Pass current tier to getUsedQuestionIds to ensure data isolation
-  const usedIds = getUsedQuestionIds(ACTIVE_TIER_MODE);
+  // Use Unified Logic: No tier passed, get all used IDs
+  const usedIds = getUsedQuestionIds();
 
-  const indexedQuestions = categoryQuestions.map((item, index) => ({
+  // Create wrappers with Row ID logic
+  const indexedQuestions = categoryQuestions.map((item) => ({
     item,
-    originalIndex: index,
+    // Use stable Row ID for deduplication
+    uniqueId: `${categoryName}-${item.id}`,
     points: getPoints(item)
   }));
 
   // Filtering out questions that are already in 'usedIds'
   const getRandom = (arr: typeof indexedQuestions, n: number) => {
-    const available = arr.filter(entry => !usedIds.includes(`${categoryName}-${entry.originalIndex}`));
-    const shuffled = [...available].sort(() => 0.5 - Math.random());
+    const available = arr.filter(entry => !usedIds.includes(entry.uniqueId));
+    // Use Fisher-Yates shuffle for true randomization
+    const shuffled = shuffleArray(available);
     return shuffled.slice(0, n);
   };
 
@@ -236,14 +252,13 @@ export const generateQuestionsForCategory = async (categoryName: string): Promis
 
   return selectedEntries.map((entry) => {
     const q = entry.item;
-    const index = entry.originalIndex;
     const p = entry.points as Points;
 
     const questionImg = q.theImageOnQuestionScreen;
     const answerImg = q.theImageOnAnswerScreen;
 
     return {
-      id: `${categoryName}-${index}`, 
+      id: entry.uniqueId, // Use the Stable ID (Row ID)
       category: categoryName,
       question: q.question,
       answer: q.answer,
